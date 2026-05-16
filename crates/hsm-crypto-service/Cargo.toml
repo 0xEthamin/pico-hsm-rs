@@ -1,0 +1,17 @@
+[package]
+name        = "hsm-crypto-service"
+version     = "0.1.0"
+edition     = "2024"
+description = "Business-logic layer between the ATECC608B driver and the USB protocol."
+
+[features]
+default = []
+defmt   = ["dep:defmt", "atecc608b/defmt"]
+
+[dependencies]
+atecc608b = { path = "../atecc608b" }
+p256      = { workspace = true }
+sha2      = { workspace = true }
+heapless  = { workspace = true }
+
+defmt     = { workspace = true, optional = true }

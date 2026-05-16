@@ -1,0 +1,12 @@
+[package]
+name        = "hsm-host"
+version     = "0.1.0"
+edition     = "2024"
+description = "Host-side CLI to talk to the mini-HSM dongle over USB-HID."
+
+[dependencies]
+hsm-usb-protocol = { path = "../../crates/hsm-usb-protocol", features = ["std"] }
+hidapi           = { workspace = true }
+clap             = { workspace = true }
+anyhow           = { workspace = true }
+hex              = { workspace = true }

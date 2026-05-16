@@ -1,0 +1,24 @@
+[package]
+name        = "atecc608b"
+version     = "0.1.0"
+edition     = "2024"
+description = "no_std async driver for the Microchip ATECC608B crypto authentication device."
+
+[features]
+default        = []
+# Enable defmt-formatted debug output of internal driver states. Off by default
+# because the consumer (firmware crate) decides whether defmt is wired up.
+defmt          = ["dep:defmt"]
+# Compiled-in unit tests use a mock HAL. This feature is only relevant for
+# host-side testing.
+mock-hal       = []
+
+[dependencies]
+embedded-hal-async = { workspace = true }
+heapless           = { workspace = true }
+
+# defmt is optional so the crate stays pure.
+defmt              = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Mock HAL implementation lives in tests/, no extra deps needed at this point.

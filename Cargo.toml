@@ -1,0 +1,71 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/atecc608b",
+    "crates/hsm-crypto-service",
+    "crates/hsm-usb-protocol",
+    "crates/hsm-firmware",
+    "tools/hsm-host",
+    "tools/config-generator",
+]
+
+# Profile applied to firmware (target = thumbv6m-none-eabi).
+# Debug build keeps symbols for defmt + probe-rs.
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = "s"
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = "s"
+overflow-checks = false
+
+
+[workspace.dependencies]
+
+# Embassy ecosystem
+embassy-executor   = { version = "0.10",  default-features = false }
+embassy-time       = { version = "0.5",  default-features = false }
+embassy-sync       = { version = "0.8",  default-features = false }
+embassy-futures    = { version = "0.1",  default-features = false }
+embassy-rp         = { version = "0.10",  default-features = false }
+embassy-usb        = { version = "0.6",  default-features = false }
+embassy-usb-driver = { version = "0.2",  default-features = false }
+
+# USB HID layer on top of embassy-usb.
+usbd-hid           = { version = "0.10",  default-features = false }
+
+# Crypto primitives. Used for off-chip ECDSA verification during tests and
+# for SHA-256 of the PIN before CheckMac on the chip.
+p256               = { version = "0.13", default-features = false, features = ["ecdsa"] }
+sha2               = { version = "0.11", default-features = false }
+
+# Embedded HAL traits
+embedded-hal       = "1.0"
+embedded-hal-async = "1.0"
+
+# Heapless containers for no_std payload buffers.
+heapless           = { version = "0.9",  default-features = false }
+
+# Logging / panic.
+defmt              = "1.1"
+defmt-rtt          = "1.2"
+panic-probe        = { version = "1.0", features = ["print-defmt"] }
+
+# Cortex-M support.
+cortex-m           = { version = "0.7",  features = ["inline-asm"] }
+cortex-m-rt        = "0.7"
+
+# Host-side (std) tooling.
+hidapi             = "2.6"
+clap               = { version = "4",    features = ["derive"] }
+anyhow             = "1"
+hex                = "0.4"

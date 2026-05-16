@@ -1,0 +1,16 @@
+[package]
+name        = "hsm-usb-protocol"
+version     = "0.1.0"
+edition     = "2024"
+description = "USB-HID protocol for the mini-HSM, shared by firmware and host."
+
+[features]
+default = []
+# When building for the host CLI, the protocol crate may use std for error
+# messages and serialization helpers.
+std     = []
+defmt   = ["dep:defmt"]
+
+[dependencies]
+heapless  = { workspace = true }
+defmt     = { workspace = true, optional = true }
