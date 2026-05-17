@@ -1,1 +1,1 @@
-//! `io` module - to be implemented in later milestones.
+//! `io` module.

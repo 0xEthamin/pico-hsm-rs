@@ -1,12 +1,12 @@
 //! Hardware Abstraction Layer (HAL) the driver depends on.
 //!
-//! Concrete backends (RP2040, STM32, host-side mock, …) implement
-//! [`AteccHal`]. The driver itself never touches a register directly: every
+//! Concrete backends (RP2040, STM32, host-side mock, etc.) implement
+//! [`AteccHal`]. The driver itself never touches a register directly. Every
 //! external action (I2C transfer, GPIO toggle, time delay) is mediated through
 //! this trait.
 //!
 //! The trait is `async` because polling an ATECC608B for a `Sign` command may
-//! take up to ~220 ms; doing this synchronously would starve other Embassy
+//! take up to 220 ms. Doing this synchronously would starve other Embassy
 //! tasks (USB, button handling, LED animation). The same trait can be wired up
 //! to a non-Embassy executor as long as it understands `core::future::Future`.
 
@@ -16,6 +16,12 @@ use core::fmt::Debug;
 ///
 /// All operations are `async` to play nicely with Embassy. A backend that runs
 /// on a blocking platform can return `core::future::ready(_)`.
+///
+/// `async fn` in a public trait normally triggers a lint because the returned
+/// future is not `Send` and the caller has no way to add that bound. We
+/// silence it deliberately. The driver and its backends are all consumed by a
+/// single-threaded Embassy executor, where `Send` is irrelevant.
+#[allow(async_fn_in_trait)]
 pub trait AteccHal
 {
     /// Backend-specific error type (`embassy_rp::i2c::Error`, a mock variant,
@@ -42,9 +48,9 @@ pub trait AteccHal
 
     /// Pull the SDA line low for `duration_us` microseconds.
     ///
-    /// This is the wake pulse: the ATECC608B leaves deep sleep when SDA is
-    /// held low for at least `tWLO` ≈ 60 μs. The backend is responsible for
-    /// temporarily detaching SDA from the I2C controller, driving it as a
+    /// This is the wake pulse. The ATECC608B leaves deep sleep when SDA is
+    /// held low for at least `tWLO` (about 60 us). The backend is responsible
+    /// for temporarily detaching SDA from the I2C controller, driving it as a
     /// plain GPIO output, then restoring it. Callers must follow this with a
     /// 1.5 ms delay before issuing the first I2C transfer (see [`crate::wake`]).
     async fn pulse_sda_low(

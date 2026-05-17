@@ -3,7 +3,7 @@
 //! The wire format of each command is a single 64-byte HID report:
 //!
 //! ```text
-//! [ opcode | len_lo | len_hi | payload… | padding (zeros) ]
+//! [ opcode | len_lo | len_hi | payload... | padding (zeros) ]
 //! ```
 
 /// Opcode byte for each command.

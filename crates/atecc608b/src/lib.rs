@@ -15,7 +15,7 @@
 //! - [`wake`]      - Wake / idle / sleep sequence and the response polling
 //!   loop.
 //! - [`command`]   - One module per high-level command (Info, Random, Sign,
-//!   GenKey, …). Each one exposes a typed async function on the
+//!   GenKey, etc). Each one exposes a typed async function on the
 //!   [`driver::Atecc`] handle.
 //! - [`error`]     - Error types for each layer, with `From` conversions for
 //!   chaining.

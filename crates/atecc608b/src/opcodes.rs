@@ -54,7 +54,8 @@ pub const POLLING_MAX_MS: u32 = 2_500;
 
 // Packet sizes
 
-/// Maximum size of a command packet sent to the chip.
+/// Maximum size of a command packet sent to the chip, including the word
+/// address byte prepended at the I2C level.
 ///
 /// 1 (word addr) + 1 (count) + 1 (opcode) + 1 (param1) + 2 (param2)
 /// + up to 155 bytes of data + 2 (CRC) = 163 bytes.
@@ -62,6 +63,17 @@ pub const MAX_PACKET_SIZE: usize = 163;
 
 /// Maximum size of a response read from the chip.
 pub const MAX_RESPONSE_SIZE: usize = 155;
+
+/// Number of bytes a command frame contains besides its data payload.
+///
+/// Layout: count (1) + opcode (1) + param1 (1) + param2 (2) + crc (2) = 7.
+/// This does not include the word address byte, which is prepended by the
+/// I2C transmit routine and is not covered by the CRC.
+pub const COMMAND_FRAME_OVERHEAD: usize = 7;
+
+/// Maximum size of the data field of a command, equal to
+/// `MAX_PACKET_SIZE - 1 (word addr) - COMMAND_FRAME_OVERHEAD = 155`.
+pub const MAX_COMMAND_DATA_LEN: usize = MAX_PACKET_SIZE - 1 - COMMAND_FRAME_OVERHEAD;
 
 // Command opcodes
 // Source: `lib/calib/calib_command.h` of CryptoAuthLib.
@@ -96,18 +108,31 @@ pub const OP_GENDIG: u8 = 0x15;
 // Expected execution time per command, in milliseconds
 // Source: `lib/calib/calib_execution.c`, table for ATECC608-M1 (clock divider
 // most commonly used). The driver uses these as the initial wait when
-// polling; the actual ready time is observed via the response.
+// polling. The actual ready time is observed via the response.
 
-pub(crate) const EXEC_TIME_INFO_MS: u32 = 5;
-pub(crate) const EXEC_TIME_RANDOM_MS: u32 = 23;
-pub(crate) const EXEC_TIME_READ_MS: u32 = 5;
-pub(crate) const EXEC_TIME_WRITE_MS: u32 = 45;
-pub(crate) const EXEC_TIME_LOCK_MS: u32 = 35;
-pub(crate) const EXEC_TIME_NONCE_MS: u32 = 20;
-pub(crate) const EXEC_TIME_GENKEY_MS: u32 = 215;
-pub(crate) const EXEC_TIME_SIGN_MS: u32 = 220;
-pub(crate) const EXEC_TIME_VERIFY_MS: u32 = 295;
-pub(crate) const EXEC_TIME_PRIVWRITE_MS: u32 = 50;
-pub(crate) const EXEC_TIME_COUNTER_MS: u32 = 25;
-pub(crate) const EXEC_TIME_CHECKMAC_MS: u32 = 40;
-pub(crate) const EXEC_TIME_GENDIG_MS: u32 = 25;
+/// Nominal execution time of `Info`, in milliseconds.
+pub const EXEC_TIME_INFO_MS: u32 = 5;
+/// Nominal execution time of `Random`, in milliseconds.
+pub const EXEC_TIME_RANDOM_MS: u32 = 23;
+/// Nominal execution time of `Read`, in milliseconds.
+pub const EXEC_TIME_READ_MS: u32 = 5;
+/// Nominal execution time of `Write`, in milliseconds.
+pub const EXEC_TIME_WRITE_MS: u32 = 45;
+/// Nominal execution time of `Lock`, in milliseconds.
+pub const EXEC_TIME_LOCK_MS: u32 = 35;
+/// Nominal execution time of `Nonce`, in milliseconds.
+pub const EXEC_TIME_NONCE_MS: u32 = 20;
+/// Nominal execution time of `GenKey`, in milliseconds.
+pub const EXEC_TIME_GENKEY_MS: u32 = 215;
+/// Nominal execution time of `Sign`, in milliseconds.
+pub const EXEC_TIME_SIGN_MS: u32 = 220;
+/// Nominal execution time of `Verify`, in milliseconds.
+pub const EXEC_TIME_VERIFY_MS: u32 = 295;
+/// Nominal execution time of `PrivWrite`, in milliseconds.
+pub const EXEC_TIME_PRIVWRITE_MS: u32 = 50;
+/// Nominal execution time of `Counter`, in milliseconds.
+pub const EXEC_TIME_COUNTER_MS: u32 = 25;
+/// Nominal execution time of `CheckMac`, in milliseconds.
+pub const EXEC_TIME_CHECKMAC_MS: u32 = 40;
+/// Nominal execution time of `GenDig`, in milliseconds.
+pub const EXEC_TIME_GENDIG_MS: u32 = 25;

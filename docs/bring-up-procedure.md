@@ -11,7 +11,7 @@ one or two of them while we iterate on the config zone.
 
 ## Phase 1 - Communication (any chip)
 
-1. Solder the chip, the 2.2 kΩ pull-ups, and connect it to a Pico H.
+1. Solder the chip, the 2.2 kOhm pull-ups, and connect it to a Pico H.
 2. Flash `hsm-firmware` (currently = blinky).
 3. Replace the blinky with the test sketch (TBD): wake + Info.
 4. Read the defmt log via `probe-rs attach`.

@@ -11,21 +11,21 @@ The high-level slot policy is summarized in
 
 | Byte range | Content                       | Editable before lock(config)? |
 |------------|-------------------------------|-------------------------------|
-| 0–15       | Factory data (SN, RevNum…)    | No (read-only from factory)   |
+| 0-15       | Factory data (SN, RevNum...)    | No (read-only from factory)   |
 | 16         | I2C address                   | Yes                           |
 | 17         | Reserved (must stay 0x00)     | Yes                           |
 | 18         | OTP mode                      | Yes                           |
 | 19         | ChipMode                      | Yes                           |
-| 20–51      | SlotConfig[0..15] (2 B each)  | Yes                           |
-| 52–67      | Counter0 / Counter1           | Yes (until lock)              |
-| 68–83      | UseLock, VolatileKey…         | Yes                           |
-| 84–85      | UserExtra, Selector           | Yes (until lock)              |
+| 20-51      | SlotConfig[0..15] (2 B each)  | Yes                           |
+| 52-67      | Counter0 / Counter1           | Yes (until lock)              |
+| 68-83      | UseLock, VolatileKey...         | Yes                           |
+| 84-85      | UserExtra, Selector           | Yes (until lock)              |
 | 86         | LockValue (data zone)         | **Read-only after lock**      |
 | 87         | LockConfig (config zone)      | **Read-only after lock**      |
-| 88–89      | SlotLocked bitmap             | Yes (until each slot lock)    |
-| 90–91      | X509 format                   | Yes                           |
-| 92–95      | ChipOptions                   | Yes                           |
-| 96–127     | KeyConfig[0..15] (2 B each)   | Yes                           |
+| 88-89      | SlotLocked bitmap             | Yes (until each slot lock)    |
+| 90-91      | X509 format                   | Yes                           |
+| 92-95      | ChipOptions                   | Yes                           |
+| 96-127     | KeyConfig[0..15] (2 B each)   | Yes                           |
 
 ## Per-slot decision table
 

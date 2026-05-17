@@ -12,13 +12,13 @@
 //!    command, with a magic word and a CRC of the expected state.
 //!
 //! 2. **Every function is marked `unsafe`.** Not because it violates Rust
-//!    memory safety, but to force the caller to write `unsafe { … }`. That
+//!    memory safety, but to force the caller to write `unsafe { ... }`. That
 //!    syntactic barrier is the only Rust-level mechanism we have to flag
 //!    operational danger.
 //!
 //! 3. **Every function takes an explicit confirmation parameter.** The caller
 //!    must reproduce a precise value (CRC of the config zone, expected
-//!    SlotLocked bitmap, …). A mismatch aborts before any byte is sent.
+//!    SlotLocked bitmap, etc.). A mismatch aborts before any byte is sent.
 //!
 //! ## Workflow expectation
 //!
@@ -32,6 +32,6 @@
 //!   `GenKey(slot=0)` + `Sign(slot=0, challenge)` + `Verify(software)` has
 //!   succeeded with the chip's config-locked state.
 //!
-//! All function bodies are to be implemented. 
-//! They are stubbed with `unimplemented!()` so that any
-//! accidental invocation panics rather than silently bricking a chip.
+//! No function bodies live in this file yet. When they are added, they will
+//! be stubbed with `unimplemented!()` first, so that any accidental
+//! invocation panics rather than silently bricking a chip.

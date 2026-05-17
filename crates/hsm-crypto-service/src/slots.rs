@@ -7,12 +7,12 @@
 //! | Slot  | Purpose                                | Type            | Policy summary                                                |
 //! |-------|----------------------------------------|-----------------|---------------------------------------------------------------|
 //! | 0     | Primary P-256 identity                 | ECC P-256       | `ReqAuth`=1, `AuthKey`=5 -> PIN-gated. `GenKey` allowed.       |
-//! | 1–4   | P-256 reserve / rotation               | ECC P-256       | Same as slot 0.                                               |
+//! | 1-4   | P-256 reserve / rotation               | ECC P-256       | Same as slot 0.                                               |
 //! | 5     | PIN hash `SHA256(PIN \|\| salt)`       | 32 bytes data   | `EncryptWrite` via slot 8. `LimitedUse` via Counter0 (cap 5). |
 //! | 6     | PUK hash `SHA256(PUK \|\| salt2)`      | 32 bytes data   | `EncryptWrite` via slot 8. `LimitedUse` via Counter1 (cap 10).|
 //! | 7     | Reserved (future attestation)          | TBD             | `Never` write before any decision is taken.                   |
-//! | 8     | I/O Protection master key              | 32 bytes data   | Written once before lock(data); never modifiable after.       |
-//! | 9–15  | Reserved (V3)                          | TBD             | `Never` write.                                                |
+//! | 8     | I/O Protection master key              | 32 bytes data   | Written once before lock(data), never modifiable after.       |
+//! | 9-15  | Reserved (V3)                          | TBD             | `Never` write.                                                |
 
 use atecc608b::Slot;
 

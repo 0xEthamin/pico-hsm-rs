@@ -17,17 +17,25 @@ where
     /// PIN format was rejected (wrong length or non-digit character).
     InvalidPinFormat,
 
-    /// PIN verification failed; tries remaining counter is included.
-    PinIncorrect { tries_remaining: u8 },
+    /// PIN verification failed. Tries remaining counter is included.
+    PinIncorrect
+    {
+        /// Number of attempts the user has left before the slot is blocked.
+        tries_remaining: u8,
+    },
 
     /// PIN slot is hardware-blocked. Only PUK reset can recover.
     PinBlocked,
 
     /// PUK was wrong. After [`crate::slots::PUK_MAX_RETRIES`] failures the
     /// chip is bricked.
-    PukIncorrect { tries_remaining: u8 },
+    PukIncorrect
+    {
+        /// Number of PUK attempts the user has left before the chip is bricked.
+        tries_remaining: u8,
+    },
 
-    /// PUK retry count exhausted; the chip is permanently unusable.
+    /// PUK retry count exhausted. The chip is permanently unusable.
     Bricked,
 
     /// A signing operation was requested but the PIN session is not active.

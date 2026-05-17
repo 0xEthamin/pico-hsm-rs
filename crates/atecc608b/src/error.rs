@@ -13,7 +13,7 @@ pub enum AteccError<HalError>
 where
     HalError: Debug,
 {
-    /// The HAL itself reported an error (I2C bus, GPIO, …).
+    /// The HAL itself reported an error (I2C bus, GPIO, etc).
     Hal(HalError),
 
     /// The wake response did not match `04 11 33 43`. The chip is either
@@ -24,7 +24,7 @@ where
     /// wake. Hardware is unusable until power-cycle.
     SelfTestFailure,
 
-    /// CRC-16 of a received frame did not match. The frame is discarded; the
+    /// CRC-16 of a received frame did not match. The frame is discarded. The
     /// caller may retry.
     BadCrc,
 

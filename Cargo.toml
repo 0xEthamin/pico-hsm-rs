@@ -9,6 +9,22 @@ members = [
     "tools/config-generator",
 ]
 
+# The firmware crate must be cross-compiled for thumbv6m-none-eabi. Pulling it
+# into the default workspace selection would force cortex-m and embassy-rp to
+# build for the host, which is impossible (inline ARM asm). Excluding it from
+# the default selection means that bare `cargo check`, `cargo test`, and
+# `cargo build` from the workspace root only operate on the host-compatible
+# crates. The firmware is built explicitly with the alias `cargo firmware`
+# defined in `.cargo/config.toml`, or via `cargo check -p hsm-firmware
+# --target thumbv6m-none-eabi`.
+default-members = [
+    "crates/atecc608b",
+    "crates/hsm-crypto-service",
+    "crates/hsm-usb-protocol",
+    "tools/hsm-host",
+    "tools/config-generator",
+]
+
 # Profile applied to firmware (target = thumbv6m-none-eabi).
 # Debug build keeps symbols for defmt + probe-rs.
 [profile.dev]

@@ -23,7 +23,7 @@ Every report (host->token and token->host) is exactly 64 bytes:
 Byte 0    : Opcode or status code
 Bytes 1-2 : Payload length, little-endian u16
 Bytes 3-N : Payload
-Bytes …   : Zero-padding until 64
+Bytes ...   : Zero-padding until 64
 ```
 
 ## Command opcodes

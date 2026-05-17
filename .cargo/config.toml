@@ -1,0 +1,7 @@
+[alias]
+# Cross-compile the firmware for the RP2040. Equivalent to running
+# `cargo check -p hsm-firmware --target thumbv6m-none-eabi`.
+firmware-check = "check -p hsm-firmware --target thumbv6m-none-eabi"
+firmware-build = "build -p hsm-firmware --target thumbv6m-none-eabi"
+firmware-run   = "run   -p hsm-firmware --target thumbv6m-none-eabi"
+firmware-clippy = "clippy -p hsm-firmware --target thumbv6m-none-eabi"

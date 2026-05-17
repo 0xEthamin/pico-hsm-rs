@@ -7,7 +7,11 @@ pub struct CryptoService<H>
 where
     H: AteccHal,
 {
-    pub(crate) atecc: Atecc<H>,
+    // Held for ownership and future use by the service methods. Will be
+    // exercised as soon as the first business-logic method (sign, get_pubkey,
+    // verify_pin, etc.) is added.
+    #[allow(dead_code)]
+    atecc: Atecc<H>,
 }
 
 impl<H> CryptoService<H>
