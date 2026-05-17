@@ -1077,9 +1077,17 @@ dependencies = [
  "embassy-usb",
  "heapless 0.9.3",
  "hsm-crypto-service",
+ "hsm-firmware-logic",
  "hsm-usb-protocol",
  "panic-probe",
  "usbd-hid",
+]
+
+[[package]]
+name = "hsm-firmware-logic"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.1.0",
 ]
 
 [[package]]

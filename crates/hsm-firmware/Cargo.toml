@@ -15,6 +15,7 @@ bench = false
 atecc608b         = { path = "../atecc608b",        features = ["defmt"] }
 hsm-crypto-service= { path = "../hsm-crypto-service", features = ["defmt"] }
 hsm-usb-protocol  = { path = "../hsm-usb-protocol", features = ["defmt"] }
+hsm-firmware-logic= { path = "../hsm-firmware-logic", features = ["defmt"] }
 
 embassy-executor  = { workspace = true, features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time      = { workspace = true, features = ["defmt", "defmt-timestamp-uptime"] }

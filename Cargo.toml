@@ -5,6 +5,7 @@ members = [
     "crates/hsm-crypto-service",
     "crates/hsm-usb-protocol",
     "crates/hsm-firmware",
+    "crates/hsm-firmware-logic",
     "tools/hsm-host",
     "tools/config-generator",
 ]
@@ -21,6 +22,7 @@ default-members = [
     "crates/atecc608b",
     "crates/hsm-crypto-service",
     "crates/hsm-usb-protocol",
+    "crates/hsm-firmware-logic",
     "tools/hsm-host",
     "tools/config-generator",
 ]

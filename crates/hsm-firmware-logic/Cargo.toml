@@ -1,0 +1,12 @@
+[package]
+name        = "hsm-firmware-logic"
+version     = "0.1.0"
+edition     = "2024"
+description = "Host-testable logic for the mini-HSM firmware: state machine and I/O abstractions."
+
+[features]
+default = []
+defmt   = ["dep:defmt"]
+
+[dependencies]
+defmt = { workspace = true, optional = true }

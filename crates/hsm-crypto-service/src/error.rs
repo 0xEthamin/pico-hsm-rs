@@ -4,6 +4,8 @@ use core::fmt::Debug;
 
 use atecc608b::AteccError;
 
+use crate::pin::FormatError;
+
 /// Error returned by [`crate::CryptoService`] methods.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -14,8 +16,8 @@ where
     /// Underlying driver error.
     Atecc(AteccError<HalError>),
 
-    /// PIN format was rejected (wrong length or non-digit character).
-    InvalidPinFormat,
+    /// PIN or PUK format was rejected (wrong length or non-digit character).
+    InvalidFormat(FormatError),
 
     /// PIN verification failed. Tries remaining counter is included.
     PinIncorrect
@@ -53,5 +55,15 @@ where
     fn from(err: AteccError<HalError>) -> Self
     {
         CryptoServiceError::Atecc(err)
+    }
+}
+
+impl<HalError> From<FormatError> for CryptoServiceError<HalError>
+where
+    HalError: Debug,
+{
+    fn from(err: FormatError) -> Self
+    {
+        CryptoServiceError::InvalidFormat(err)
     }
 }
