@@ -3,7 +3,9 @@
 //! [`Atecc`] owns the HAL and exposes the typed command API. High-level
 //! commands like `Info` or `Sign` live in [`crate::command`]. They share the
 //! same execution skeleton, which is implemented here as
-//! [`Atecc::execute_command`].
+//! [`Atecc::execute_command`] (for commands that return a data payload) and
+//! [`Atecc::execute_command_status`] (for commands that signal success with
+//! a single `0x00` status byte).
 //!
 //! # Lifecycle
 //!
@@ -15,7 +17,7 @@
 //!    for that opcode, then re-reads at fixed intervals until the chip
 //!    responds or until the global timeout elapses.
 //! 4. **Verify** the response CRC and parse it into either a payload or a
-//!    chip error code.
+//!    chip status byte.
 //! 5. **Idle** the chip so the watchdog does not fire on the next call.
 //!
 //! Wake state is tracked by an internal `is_awake` flag so consecutive
@@ -39,6 +41,9 @@ use crate::packet::{
     ResponseFrame,
 };
 use crate::wake::{idle, sleep, wake};
+
+/// Smallest valid response frame: count + status + crc(2).
+const STATUS_RESPONSE_LEN: usize = 4;
 
 /// Driver handle owning the HAL and tracking the chip's awake/sleep state.
 pub struct Atecc<H>
@@ -137,7 +142,17 @@ where
         Ok(())
     }
 
-    /// Execute one full command round-trip.
+    /// Execute one full command round-trip and return the data payload.
+    ///
+    /// Use this overload for commands that return data (Info, Random, Read,
+    /// GenKey, Sign, Verify, ECDH). The chip responds with `count >= 5` bytes
+    /// (count + payload + CRC).
+    ///
+    /// For commands that only signal success or failure via a 4-byte status
+    /// frame (Write, Lock, Counter set), use [`Atecc::execute_command_status`].
+    /// This method does not accept the `0x00` success byte because a
+    /// data-returning command never emits a bare `0x00`. If it appears here,
+    /// the frame is malformed.
     ///
     /// `data` is the command-specific payload, `expected_exec_ms` is the
     /// typical execution time for that opcode (consult the `EXEC_TIME_*`
@@ -164,24 +179,9 @@ where
         response_buf: &'r mut [u8],
     ) -> Result<&'r [u8], AteccError<H::Error>>
     {
-        self.ensure_awake().await?;
-
-        // Build the command frame. We use a stack buffer sized to the
-        // protocol maximum so this works in pure no_std without an allocator.
-        let mut tx = [0u8; MAX_PACKET_SIZE];
-        // First byte sent on I2C is the command word address. The CRC of the
-        // frame does not cover it.
-        tx[0] = WORD_ADDRESS_COMMAND;
-        let frame_len = build_command_frame(opcode, param1, param2, data, &mut tx[1..])
-            .map_err(map_build_error)?;
-        let total_tx = 1 + frame_len;
-
-        self.hal.i2c_write(self.device_addr, &tx[..total_tx]).await?;
-
-        // Wait the nominal execution time before the first attempt.
-        self.hal.delay_ms(expected_exec_ms).await;
-
-        let response_len = self.poll_for_response(response_buf).await?;
+        let response_len = self
+            .run_command(opcode, param1, param2, data, expected_exec_ms, response_buf)
+            .await?;
         let response = &response_buf[..response_len];
 
         match parse_response_frame(response).map_err(map_parse_error)?
@@ -200,13 +200,100 @@ where
                     Some(err) => Err(AteccError::Chip(err)),
                     None =>
                     {
-                        // A bare 0x00 status byte is not emitted by the chip
-                        // in practice. Treat as malformed.
+                        // A bare 0x00 status here means the chip returned a
+                        // 4-byte success frame for a data-returning command.
+                        // That should not happen for the opcodes that use
+                        // this method. Treat as malformed.
                         Err(AteccError::MalformedResponse)
                     }
                 }
             }
         }
+    }
+
+    /// Execute one full command round-trip and expect a status-only response.
+    ///
+    /// Use this overload for commands that signal completion with a 4-byte
+    /// status frame (Write, Lock, Counter set, Nonce mode 0x03). A status
+    /// byte of `0x00` is the success indicator. Any non-zero status maps to
+    /// an [`AteccError::Chip`] variant.
+    ///
+    /// A response longer than 4 bytes here means the chip returned data when
+    /// none was expected. This is treated as a malformed response.
+    ///
+    /// # Errors
+    /// Every variant of [`AteccError`] is reachable. See its documentation.
+    pub async fn execute_command_status(
+        &mut self,
+        opcode: u8,
+        param1: u8,
+        param2: u16,
+        data: &[u8],
+        expected_exec_ms: u32,
+    ) -> Result<(), AteccError<H::Error>>
+    {
+        let mut response_buf = [0u8; STATUS_RESPONSE_LEN];
+        let response_len = self
+            .run_command(
+                opcode,
+                param1,
+                param2,
+                data,
+                expected_exec_ms,
+                &mut response_buf,
+            )
+            .await?;
+
+        if response_len != STATUS_RESPONSE_LEN
+        {
+            return Err(AteccError::MalformedResponse);
+        }
+
+        match parse_response_frame(&response_buf[..response_len]).map_err(map_parse_error)?
+        {
+            ResponseFrame::Status(0x00) => Ok(()),
+            ResponseFrame::Status(status_byte) => Err(AteccError::Chip(
+                ChipError::from_status_byte(status_byte)
+                    .unwrap_or(ChipError::Unknown(status_byte)),
+            )),
+            ResponseFrame::Payload(_) => Err(AteccError::MalformedResponse),
+        }
+    }
+
+    /// Send the command frame and poll for the raw response.
+    ///
+    /// Returns the total number of bytes written into `response_buf` (count
+    /// byte included). Parsing of the response frame is the caller's
+    /// responsibility, so this helper can be shared between the data-payload
+    /// and status-only entry points above.
+    async fn run_command(
+        &mut self,
+        opcode: u8,
+        param1: u8,
+        param2: u16,
+        data: &[u8],
+        expected_exec_ms: u32,
+        response_buf: &mut [u8],
+    ) -> Result<usize, AteccError<H::Error>>
+    {
+        self.ensure_awake().await?;
+
+        // Build the command frame. We use a stack buffer sized to the
+        // protocol maximum so this works in pure no_std without an allocator.
+        let mut tx = [0u8; MAX_PACKET_SIZE];
+        // First byte sent on I2C is the command word address. The CRC of the
+        // frame does not cover it.
+        tx[0] = WORD_ADDRESS_COMMAND;
+        let frame_len = build_command_frame(opcode, param1, param2, data, &mut tx[1..])
+            .map_err(map_build_error)?;
+        let total_tx = 1 + frame_len;
+
+        self.hal.i2c_write(self.device_addr, &tx[..total_tx]).await?;
+
+        // Wait the nominal execution time before the first attempt.
+        self.hal.delay_ms(expected_exec_ms).await;
+
+        self.poll_for_response(response_buf).await
     }
 
     /// Poll the chip's response register until a frame is available or the

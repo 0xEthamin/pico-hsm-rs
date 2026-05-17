@@ -8,10 +8,14 @@
 //!    opcode, params, and expected execution time.
 //! 3. It parses the resulting payload into a strongly-typed return value.
 
+pub mod checkmac;
+pub mod counter;
+pub mod gendig;
 pub mod genkey;
 pub mod info;
 pub mod lock;
 pub mod nonce;
+pub mod privwrite;
 pub mod random;
 pub mod read_write;
 pub mod sign;
