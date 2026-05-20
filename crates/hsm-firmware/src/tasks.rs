@@ -1,11 +1,23 @@
 //! Async tasks running on the firmware.
 //!
-//! The current design uses two tasks:
+//! Two tasks live in this module:
 //!
 //! 1. [`usb_run_task`] : keeps the embassy-usb device stack alive by
-//!    polling its `run` future forever.
-//! 2. [`dispatch_task`] : reads incoming HID reports, dispatches the
+//!    polling its `run` future forever. Spawned at boot.
+//! 2. [`dispatch_loop`] : reads incoming HID reports, dispatches the
 //!    request to the [`CryptoService`], and writes the response back.
+//!    Runs in the main task because it owns the `CryptoService`.
+//!
+//! The dispatch loop also drives the [`crate::state`] state machine by
+//! posting events on [`crate::channels::EVENT_CHANNEL`]:
+//!
+//! - `Event::PinVerified` after a successful `verify_pin`.
+//! - `Event::SignRequested` at the start of a `sign` operation, then
+//!   blocks on [`crate::channels::TOUCH_CONFIRMED`] until the touch task
+//!   has confirmed the user pressed the button.
+//! - `Event::TouchTimeout` if the wait runs out.
+//! - `Event::SignComplete` once the signing call returned.
+//! - `Event::ErrorRaised` on any service error during signing.
 //!
 //! Splitting the device run loop from the dispatch loop is the canonical
 //! embassy-usb pattern: the stack handles control transfers and resets
@@ -13,9 +25,13 @@
 //! cadence.
 
 use defmt::{info, warn};
+use embassy_futures::select::{select, Either};
+use embassy_time::{Duration, Timer};
 
 use atecc608b::AteccHal;
+use atecc608b::Slot;
 use hsm_crypto_service::{Clock, CryptoService, CryptoServiceError};
+use hsm_firmware_logic::{Event, TOUCH_TIMEOUT_MS};
 use hsm_usb_protocol::commands::{
     parse_set_pin, parse_sign, parse_slot_only, parse_unblock_pin, parse_verify_pin,
     CommandOpcode,
@@ -23,8 +39,7 @@ use hsm_usb_protocol::commands::{
 use hsm_usb_protocol::responses::ResponseStatus;
 use hsm_usb_protocol::Frame;
 
-use atecc608b::Slot;
-
+use crate::channels::{post_event, TOUCH_CONFIRMED};
 use crate::usb::{HidRx, HidTx, REPORT_SIZE, UsbStack};
 
 /// Drive the embassy-usb device stack. Spawn this once at boot.
@@ -209,10 +224,45 @@ where
         Some(s) => s,
         None => return write_status(tx_buf, ResponseStatus::InvalidSlot, &[]),
     };
-    match service.sign(slot, &digest).await
+
+    // Drain any stale TOUCH_CONFIRMED pulse from a previous run before
+    // arming the wait.
+    TOUCH_CONFIRMED.reset();
+
+    // Notify the state machine that a sign request needs a touch.
+    post_event(Event::SignRequested);
+
+    // Wait for the user to physically touch the button. Bail out after
+    // TOUCH_TIMEOUT_MS.
+    let timeout = Timer::after(Duration::from_millis(TOUCH_TIMEOUT_MS));
+    let confirmation = TOUCH_CONFIRMED.wait();
+    match select(timeout, confirmation).await
+    {
+        Either::First(()) =>
+        {
+            info!("touch timeout, cancelling sign");
+            post_event(Event::TouchTimeout);
+            return write_status(tx_buf, ResponseStatus::TouchTimeout, &[]);
+        }
+        Either::Second(()) =>
+        {
+            // Touch confirmed, proceed.
+        }
+    }
+
+    // Perform the actual signing. On error, also fire SignComplete so
+    // the SM does not stay stuck in Signing.
+    let result = service.sign(slot, &digest).await;
+    post_event(Event::SignComplete);
+
+    match result
     {
         Ok(sig) => write_status(tx_buf, ResponseStatus::Ok, &sig),
-        Err(err) => write_error(tx_buf, &err),
+        Err(err) =>
+        {
+            post_event(Event::ErrorRaised);
+            write_error(tx_buf, &err)
+        }
     }
 }
 
@@ -272,13 +322,17 @@ where
     };
     match service.verify_pin(&pin).await
     {
-        Ok(()) => write_status(tx_buf, ResponseStatus::Ok, &[]),
+        Ok(()) =>
+        {
+            post_event(Event::PinVerified);
+            write_status(tx_buf, ResponseStatus::Ok, &[])
+        }
         Err(err) => write_error(tx_buf, &err),
     }
 }
 
 async fn handle_set_pin<H, C>(
-    _service: &mut CryptoService<H, C>,
+    service: &mut CryptoService<H, C>,
     payload: &[u8],
     tx_buf: &mut [u8],
 ) -> usize
@@ -287,14 +341,21 @@ where
     C: Clock,
     H::Error: core::fmt::Debug,
 {
-    let (_old, _new) = match parse_set_pin(payload)
+    let (_old, new, io_key) = match parse_set_pin(payload)
     {
         Ok(v) => v,
         Err(_) => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
     };
-    // SetPin requires the encrypted-write-to-slot-5 dance. Same status as
-    // the rewrite path inside unblock_pin: not yet wired up.
-    write_status(tx_buf, ResponseStatus::InvalidCommand, &[])
+    // The service relies on the active PIN session to authorize the
+    // change; the old_pin field of the payload is currently unused (the
+    // session itself is the proof that the user knows the current PIN).
+    // It is kept in the payload for forward compatibility with a future
+    // "double-check old_pin matches" defence-in-depth pass.
+    match service.set_pin(&new, &io_key).await
+    {
+        Ok(()) => write_status(tx_buf, ResponseStatus::Ok, &[]),
+        Err(err) => write_error(tx_buf, &err),
+    }
 }
 
 async fn handle_unblock_pin<H, C>(
@@ -307,12 +368,12 @@ where
     C: Clock,
     H::Error: core::fmt::Debug,
 {
-    let (puk, new_pin) = match parse_unblock_pin(payload)
+    let (puk, new_pin, io_key) = match parse_unblock_pin(payload)
     {
         Ok(v) => v,
         Err(_) => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
     };
-    match service.unblock_pin(&puk, &new_pin).await
+    match service.unblock_pin(&puk, &new_pin, &io_key).await
     {
         Ok(()) => write_status(tx_buf, ResponseStatus::Ok, &[]),
         Err(err) => write_error(tx_buf, &err),

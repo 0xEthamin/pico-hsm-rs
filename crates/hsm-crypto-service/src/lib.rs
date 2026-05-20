@@ -10,6 +10,7 @@
 #![deny(unsafe_code)]
 #![warn(clippy::pedantic)]
 
+pub mod encrypted_write;
 pub mod error;
 pub mod pin;
 pub mod service;

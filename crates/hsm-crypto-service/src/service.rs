@@ -11,9 +11,14 @@
 use core::fmt::Debug;
 
 use atecc608b::command::counter::CounterId;
+use atecc608b::command::gendig::GenDigZone;
 use atecc608b::command::nonce::NonceTarget;
+use atecc608b::command::read_write::{data_address, Zone};
 use atecc608b::{Atecc, AteccError, AteccHal, ChipError, Slot};
 
+use crate::encrypted_write::{
+    build_encrypted_write_payload, derive_session_key, encrypt_payload, write_mac, SLOT_VALUE_LEN,
+};
 use crate::error::CryptoServiceError;
 use crate::pin::{
     checkmac_other_data, checkmac_response, pin_hash, pin_salt, puk_hash, puk_salt,
@@ -21,7 +26,7 @@ use crate::pin::{
 };
 use crate::session::{Clock, Session};
 use crate::slots::{
-    PIN_MAX_RETRIES, PUK_MAX_RETRIES, SLOT_PIN_HASH, SLOT_PRIMARY, SLOT_PUK_HASH,
+    PIN_MAX_RETRIES, PUK_MAX_RETRIES, SLOT_IO_KEY, SLOT_PIN_HASH, SLOT_PRIMARY, SLOT_PUK_HASH,
 };
 
 /// Convenience alias for the service's result type.
@@ -100,6 +105,10 @@ where
     {
         (self.atecc, self.clock)
     }
+
+    // -----------------------------------------------------------------------
+    // Public services
+    // -----------------------------------------------------------------------
 
     /// Return chip revision, serial, and provisioning state.
     ///
@@ -186,19 +195,18 @@ where
     /// On success, slot 5 is rewritten with the SHA-256 of the new PIN and
     /// `Counter0` is refreshed back to a fresh batch.
     ///
-    /// **Note**: the actual encrypted write of the new PIN hash into slot 5
-    /// requires the GenDig + write_32_encrypted dance, which depends on the
-    /// I/O Protection Key in slot 8. That orchestration is not yet
-    /// implemented in this method; it currently only verifies the PUK and
-    /// reports the result. A future revision will perform the encrypted
-    /// write.
+    /// `io_key` is the 32-byte I/O Protection Key (slot 8 content) known
+    /// to the host that performed provisioning. The service uses it to
+    /// build the encrypted-write payload. The key is never stored in the
+    /// service; it lives only for the duration of this call.
     ///
     /// # Errors
-    /// See variants above.
+    /// See [`CryptoServiceError`] variants.
     pub async fn unblock_pin(
         &mut self,
         puk: &[u8; PUK_LEN],
         new_pin: &[u8; PIN_LEN],
+        io_key: &[u8; SLOT_VALUE_LEN],
     ) -> ServiceResult<(), H::Error>
     {
         validate_digits(puk)?;
@@ -227,18 +235,55 @@ where
             return Err(CryptoServiceError::PukIncorrect { tries_remaining: remaining });
         }
 
-        // PUK was correct. Refresh PUK counter to a fresh batch.
+        // PUK was correct. Compute the new PIN hash and rewrite slot 5.
+        let new_pin_hash = pin_hash(new_pin, &pin_salt(&serial));
+        self.write_slot_encrypted(SLOT_PIN_HASH, &new_pin_hash, io_key, &serial)
+            .await?;
+
+        // Refresh PUK counter to a fresh batch.
         self.refresh_counter_batch(CounterId::Counter1, PUK_MAX_RETRIES).await?;
 
         // Reset PIN counter too: the user got a fresh PIN slate.
         self.refresh_counter_batch(CounterId::Counter0, PIN_MAX_RETRIES).await?;
 
-        // The encrypted rewrite of slot 5 with the new PIN hash lands in a
-        // later revision. The caller is silently NOT enforcing the new PIN
-        // for now; the previous PIN remains valid until the encrypted write
-        // is wired up.
-        let _new_pin_hash = pin_hash(new_pin, &pin_salt(&serial));
+        Ok(())
+    }
 
+    /// Change the PIN.
+    ///
+    /// Requires an active PIN session (proves the caller knows the
+    /// current PIN). Rewrites slot 5 with the SHA-256 of `new_pin` using
+    /// the encrypted-write protocol against the I/O Protection Key.
+    ///
+    /// # Errors
+    /// - [`CryptoServiceError::PinRequired`] if no session is active.
+    /// - [`CryptoServiceError::InvalidFormat`] if `new_pin` is not 4 digits.
+    /// - [`CryptoServiceError::Atecc`] for chip-level errors.
+    pub async fn set_pin(
+        &mut self,
+        new_pin: &[u8; PIN_LEN],
+        io_key: &[u8; SLOT_VALUE_LEN],
+    ) -> ServiceResult<(), H::Error>
+    {
+        validate_digits(new_pin)?;
+
+        let now = self.clock.now_ms();
+        if !self.session.is_active(now)
+        {
+            return Err(CryptoServiceError::PinRequired);
+        }
+
+        let serial = self.cached_serial().await?;
+        let new_pin_hash = pin_hash(new_pin, &pin_salt(&serial));
+
+        self.write_slot_encrypted(SLOT_PIN_HASH, &new_pin_hash, io_key, &serial)
+            .await?;
+
+        // Refresh PIN counter so the user starts a fresh batch with the
+        // new PIN.
+        self.refresh_counter_batch(CounterId::Counter0, PIN_MAX_RETRIES).await?;
+
+        self.session.touch(now);
         Ok(())
     }
 
@@ -306,6 +351,10 @@ where
     {
         self.session.close();
     }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
 
     /// Read the chip's 9-byte serial number, caching it on first call.
     async fn cached_serial(&mut self) -> ServiceResult<[u8; CHIP_SERIAL_LEN], H::Error>
@@ -399,6 +448,59 @@ where
                 Err(other) => return Err(CryptoServiceError::Atecc(other)),
             }
         }
+        Ok(())
+    }
+
+    /// Perform an encrypted 32-byte write into `target_slot`.
+    ///
+    /// Sequence:
+    ///
+    /// 1. Read a fresh 32-byte random from the chip and load it into
+    ///    TempKey via `Nonce(passthrough)`.
+    /// 2. Issue `GenDig(zone=Data, key_id=IO_KEY_SLOT)`. TempKey becomes
+    ///    the derived session key.
+    /// 3. Host computes the same session key locally.
+    /// 4. Host XOR-encrypts `plaintext` and computes the Write MAC.
+    /// 5. `Write(slot, encrypted)` with `ciphertext || mac`.
+    ///
+    /// Used by [`Self::set_pin`] and [`Self::unblock_pin`] to update the
+    /// PIN hash in slot 5.
+    async fn write_slot_encrypted(
+        &mut self,
+        target_slot: Slot,
+        plaintext: &[u8; SLOT_VALUE_LEN],
+        io_key: &[u8; SLOT_VALUE_LEN],
+        chip_serial: &[u8; CHIP_SERIAL_LEN],
+    ) -> ServiceResult<(), H::Error>
+    {
+        // 1. Generate a fresh nonce input and load it into TempKey.
+        let nonce_input = self.atecc.random().await?;
+        self.atecc.nonce_passthrough(NonceTarget::TempKey, &nonce_input).await?;
+
+        // 2. GenDig on the I/O key slot. The chip updates TempKey.
+        let io_slot = SLOT_IO_KEY.as_u8();
+        self.atecc.gendig(GenDigZone::Data, u16::from(io_slot)).await?;
+
+        // 3. Replicate the chip-side TempKey on the host.
+        let session_key = derive_session_key(io_key, &nonce_input, io_slot, chip_serial);
+
+        // 4. Encrypt and MAC the plaintext.
+        let ciphertext = encrypt_payload(plaintext, &session_key);
+        let mac = write_mac(
+            io_key,
+            &session_key,
+            plaintext,
+            target_slot.as_u8(),
+            0,
+            chip_serial,
+        );
+        let payload = build_encrypted_write_payload(&ciphertext, &mac);
+
+        // 5. Write to the slot. Slot block 0, offset 0 (single 32-byte
+        // block written).
+        let address = data_address(target_slot, 0, 0);
+        self.atecc.write_32_encrypted(Zone::Data, address, &payload).await?;
+
         Ok(())
     }
 }

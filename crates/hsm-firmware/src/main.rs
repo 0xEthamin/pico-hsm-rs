@@ -3,11 +3,15 @@
 //! Boot sequence:
 //!
 //! 1. Initialise embassy-rp peripherals.
-//! 2. Configure status / touch-awaiting LEDs (GP16, GP17).
+//! 2. Configure GPIOs:
+//!    - GP15 input with pull-up : touch button (active-low).
+//!    - GP16 output : green status LED.
+//!    - GP17 output : yellow touch-awaiting LED.
 //! 3. Build the USB-HID stack and split it into reader/writer.
 //! 4. Build the (stub) ATECC HAL on I2C0.
-//! 5. Spawn the USB run task.
-//! 6. Enter the dispatch loop in the main task.
+//! 5. Spawn the auxiliary tasks: USB run, state machine, animation, touch.
+//! 6. Fire `Event::BootComplete` so the state machine leaves the boot state.
+//! 7. Enter the dispatch loop in the main task.
 //!
 //! The HAL implementation against the real RP2040 I2C peripheral lives in
 //! [`crate::hal_rp2040`] and is currently a stub. Until it is filled in,
@@ -21,18 +25,24 @@
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Level, Output};
+use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_time::Instant;
 use embassy_usb::class::hid::State;
 use panic_probe as _;
 
 use atecc608b::Atecc;
 use hsm_crypto_service::{Clock, CryptoService};
+use hsm_firmware_logic::Event;
 
+mod animation;
+mod channels;
 mod hal_rp2040;
+mod state;
 mod tasks;
+mod touch;
 mod usb;
 
+use crate::channels::post_event;
 use crate::usb::{build_usb, UsbBuffers};
 
 /// Static descriptor / control buffers. embassy-usb borrows these for the
@@ -61,10 +71,14 @@ async fn main(spawner: Spawner)
 {
     let peripherals = embassy_rp::init(Default::default());
 
-    // GP16 - green status LED.
-    let _led_status = Output::new(peripherals.PIN_16, Level::Low);
-    // GP17 - yellow touch-awaiting LED.
-    let _led_touch = Output::new(peripherals.PIN_17, Level::Low);
+    // GPIOs.
+    // GP15 - touch button. Active-low: switch to ground, internal pull-up
+    // to 3V3. Reads low when pressed.
+    let button = Input::new(peripherals.PIN_15, Pull::Up);
+    // GP16 - green status LED, active-high.
+    let led_green = Output::new(peripherals.PIN_16, Level::Low);
+    // GP17 - yellow touch-awaiting LED, active-high.
+    let led_yellow = Output::new(peripherals.PIN_17, Level::Low);
 
     info!("mini-hsm firmware booted");
 
@@ -87,21 +101,31 @@ async fn main(spawner: Spawner)
 
     let (usb_device, rx, tx) = build_usb(peripherals.USB, buffers, hid_state);
 
-    // Build the (stub) ATECC handle. The HAL implementation against the
-    // real I2C peripheral is filled in in a later iteration.
-    let hal = hal_rp2040::StubHal::new();
+    // Build the ATECC handle on I2C0 (SCL=GP5, SDA=GP4 per the project
+    // schematic). The Peri singletons are moved into the HAL, which
+    // re-borrows them on every transaction or wake pulse.
+    let hal = hal_rp2040::Rp2040Hal::new(
+        peripherals.I2C0,
+        peripherals.PIN_5,
+        peripherals.PIN_4,
+    );
     let atecc = Atecc::new(hal);
 
     let service = CryptoService::new(atecc, EmbassyClock);
 
-    // Spawn the USB run task. Required to keep the USB stack alive.
-    //
-    // `#[embassy_executor::task]` wraps the task body in a function that
-    // returns `Result<SpawnToken, SpawnError>`. We unwrap that here
-    // because spawning at boot, before anything else is queued, cannot
-    // fail (the queue is empty). `spawner.spawn` itself returns `()` on
-    // this version of embassy-executor.
+    // Spawn the auxiliary tasks. Each `spawner.spawn(...)` call returns
+    // `()`; the `#[embassy_executor::task]` macro wraps the task body in
+    // a function that returns `Result<SpawnToken, SpawnError>`. The
+    // unwrap on the inner result cannot fail at boot because the task
+    // queue is empty.
     spawner.spawn(tasks::usb_run_task(usb_device).unwrap());
+    spawner.spawn(state::state_task().unwrap());
+    spawner.spawn(animation::animation_task(led_green, led_yellow).unwrap());
+    spawner.spawn(touch::touch_task(button).unwrap());
+
+    // Now that every auxiliary task is up, tell the state machine that
+    // boot is complete so it leaves the Booting state.
+    post_event(Event::BootComplete);
 
     // Enter the dispatch loop. Never returns.
     tasks::dispatch_loop(rx, tx, service).await

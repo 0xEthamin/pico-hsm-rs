@@ -66,16 +66,20 @@ fn unblock_pin_round_trip()
 {
     let puk = *b"12345678";
     let new_pin = *b"4242";
-    let mut payload = [0u8; PUK_LEN + PIN_LEN];
+    let io_key: [u8; 32] = core::array::from_fn(|i| 0xA0u8.wrapping_add(i as u8));
+    let mut payload = [0u8; PUK_LEN + PIN_LEN + 32];
     payload[..PUK_LEN].copy_from_slice(&puk);
-    payload[PUK_LEN..].copy_from_slice(&new_pin);
+    payload[PUK_LEN..PUK_LEN + PIN_LEN].copy_from_slice(&new_pin);
+    payload[PUK_LEN + PIN_LEN..].copy_from_slice(&io_key);
 
     let report = Frame::to_report(CommandOpcode::UnblockPin.as_u8(), &payload).unwrap();
     let frame = Frame::parse(&report).unwrap();
     assert_eq!(CommandOpcode::try_from(frame.opcode).unwrap(), CommandOpcode::UnblockPin);
-    let (parsed_puk, parsed_pin) = commands::parse_unblock_pin(frame.payload).unwrap();
+    let (parsed_puk, parsed_pin, parsed_io_key) =
+        commands::parse_unblock_pin(frame.payload).unwrap();
     assert_eq!(parsed_puk, puk);
     assert_eq!(parsed_pin, new_pin);
+    assert_eq!(parsed_io_key, io_key);
 }
 
 #[test]

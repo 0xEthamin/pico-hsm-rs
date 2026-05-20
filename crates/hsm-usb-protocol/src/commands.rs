@@ -198,36 +198,52 @@ pub fn parse_verify_pin(payload: &[u8]) -> Result<[u8; PIN_LEN], PayloadError>
 
 /// Parse the payload of [`CommandOpcode::SetPin`].
 ///
-/// Returns `(old_pin, new_pin)`.
+/// Layout: `old_pin (4) || new_pin (4) || io_key (32)`. The IO key is
+/// the 32-byte I/O Protection Key stored in slot 8, provided by the host
+/// from its local provisioning config. The firmware uses it to perform
+/// the encrypted write of the new PIN hash into slot 5; it is not stored.
+///
+/// Returns `(old_pin, new_pin, io_key)`.
 ///
 /// # Errors
 /// See [`PayloadError`].
-pub fn parse_set_pin(payload: &[u8]) -> Result<([u8; PIN_LEN], [u8; PIN_LEN]), PayloadError>
+pub fn parse_set_pin(
+    payload: &[u8],
+) -> Result<([u8; PIN_LEN], [u8; PIN_LEN], [u8; 32]), PayloadError>
 {
-    require_len(payload, PIN_LEN * 2)?;
+    require_len(payload, PIN_LEN * 2 + 32)?;
     let mut old = [0u8; PIN_LEN];
     let mut new = [0u8; PIN_LEN];
+    let mut io_key = [0u8; 32];
     old.copy_from_slice(&payload[..PIN_LEN]);
-    new.copy_from_slice(&payload[PIN_LEN..]);
-    Ok((old, new))
+    new.copy_from_slice(&payload[PIN_LEN..PIN_LEN * 2]);
+    io_key.copy_from_slice(&payload[PIN_LEN * 2..PIN_LEN * 2 + 32]);
+    Ok((old, new, io_key))
 }
 
 /// Parse the payload of [`CommandOpcode::UnblockPin`].
 ///
-/// Returns `(puk, new_pin)`.
+/// Layout: `puk (8) || new_pin (4) || io_key (32)`. The IO key is
+/// the 32-byte I/O Protection Key stored in slot 8, provided by the host
+/// from its local provisioning config. The firmware uses it to perform
+/// the encrypted write of the new PIN hash into slot 5; it is not stored.
+///
+/// Returns `(puk, new_pin, io_key)`.
 ///
 /// # Errors
 /// See [`PayloadError`].
 pub fn parse_unblock_pin(
     payload: &[u8],
-) -> Result<([u8; PUK_LEN], [u8; PIN_LEN]), PayloadError>
+) -> Result<([u8; PUK_LEN], [u8; PIN_LEN], [u8; 32]), PayloadError>
 {
-    require_len(payload, PUK_LEN + PIN_LEN)?;
+    require_len(payload, PUK_LEN + PIN_LEN + 32)?;
     let mut puk = [0u8; PUK_LEN];
     let mut new = [0u8; PIN_LEN];
+    let mut io_key = [0u8; 32];
     puk.copy_from_slice(&payload[..PUK_LEN]);
-    new.copy_from_slice(&payload[PUK_LEN..]);
-    Ok((puk, new))
+    new.copy_from_slice(&payload[PUK_LEN..PUK_LEN + PIN_LEN]);
+    io_key.copy_from_slice(&payload[PUK_LEN + PIN_LEN..PUK_LEN + PIN_LEN + 32]);
+    Ok((puk, new, io_key))
 }
 
 /// Parse the payload of [`CommandOpcode::WriteConfigZone`].
@@ -346,21 +362,55 @@ mod tests
     }
 
     #[test]
-    fn parse_set_pin_extracts_old_and_new()
+    fn parse_set_pin_extracts_old_new_and_io_key()
     {
-        let payload = b"00001234";
-        let (old, new) = parse_set_pin(payload).unwrap();
+        let mut payload = [0u8; PIN_LEN * 2 + 32];
+        payload[..4].copy_from_slice(b"0000");
+        payload[4..8].copy_from_slice(b"1234");
+        for i in 0..32
+        {
+            payload[8 + i] = 0xA0 + i as u8;
+        }
+        let (old, new, io_key) = parse_set_pin(&payload).unwrap();
         assert_eq!(&old, b"0000");
         assert_eq!(&new, b"1234");
+        for i in 0..32
+        {
+            assert_eq!(io_key[i], 0xA0 + i as u8);
+        }
     }
 
     #[test]
-    fn parse_unblock_pin_extracts_puk_and_new_pin()
+    fn parse_set_pin_rejects_short_payload()
     {
-        let payload = b"012345671234";
-        let (puk, new) = parse_unblock_pin(payload).unwrap();
+        let err = parse_set_pin(b"0000123").unwrap_err();
+        assert_eq!(err, PayloadError::WrongLen { expected: 40, actual: 7 });
+    }
+
+    #[test]
+    fn parse_unblock_pin_extracts_puk_new_pin_and_io_key()
+    {
+        let mut payload = [0u8; PUK_LEN + PIN_LEN + 32];
+        payload[..8].copy_from_slice(b"01234567");
+        payload[8..12].copy_from_slice(b"1234");
+        for i in 0..32
+        {
+            payload[12 + i] = 0xB0 + i as u8;
+        }
+        let (puk, new, io_key) = parse_unblock_pin(&payload).unwrap();
         assert_eq!(&puk, b"01234567");
         assert_eq!(&new, b"1234");
+        for i in 0..32
+        {
+            assert_eq!(io_key[i], 0xB0 + i as u8);
+        }
+    }
+
+    #[test]
+    fn parse_unblock_pin_rejects_short_payload()
+    {
+        let err = parse_unblock_pin(b"01234567").unwrap_err();
+        assert_eq!(err, PayloadError::WrongLen { expected: 44, actual: 8 });
     }
 
     #[test]
