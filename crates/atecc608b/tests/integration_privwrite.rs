@@ -6,14 +6,15 @@ use common::{block_on, MockHal};
 
 use atecc608b::command::privwrite::PRIVWRITE_CLEARTEXT_SIZE;
 use atecc608b::{Atecc, AteccError, ChipError, Slot};
+use atecc608b::opcodes::{WAKE_DELAY_US, WAKE_LOW_DURATION_US};
 
 const WAKE_RESPONSE: [u8; 4] = [0x04, 0x11, 0x33, 0x43];
 const ADDR: u8 = 0x60;
 
 fn expect_wake(hal: &mut MockHal)
 {
-    hal.expect_pulse_sda_low(60);
-    hal.expect_delay_us(1500);
+    hal.expect_pulse_sda_low(WAKE_LOW_DURATION_US);
+    hal.expect_delay_us(WAKE_DELAY_US);
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 

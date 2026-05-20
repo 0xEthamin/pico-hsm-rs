@@ -12,6 +12,7 @@ mod common;
 use common::{block_on, MockHal};
 
 use atecc608b::Atecc;
+use atecc608b::opcodes::{WAKE_DELAY_US, WAKE_LOW_DURATION_US};
 
 /// Full byte stream of a wake response from a healthy ATECC608B.
 const WAKE_RESPONSE: [u8; 4] = [0x04, 0x11, 0x33, 0x43];
@@ -29,8 +30,8 @@ const INFO_RESPONSE_M0: [u8; 7] = [0x07, 0x00, 0x00, 0x60, 0x02, 0x80, 0x38];
 /// Setup the mock to expect exactly one wake sequence.
 fn expect_wake(hal: &mut MockHal)
 {
-    hal.expect_pulse_sda_low(60);
-    hal.expect_delay_us(1500);
+    hal.expect_pulse_sda_low(WAKE_LOW_DURATION_US);
+    hal.expect_delay_us(WAKE_DELAY_US);
     hal.expect_i2c_read(0x60, &WAKE_RESPONSE);
 }
 
@@ -123,6 +124,7 @@ fn polling_handles_chip_busy_then_ready()
     // 4. Fourth attempt succeeds. Count byte first, then the payload.
     hal.expect_i2c_read(0x60, &INFO_RESPONSE_M0[0..1]);
     hal.expect_i2c_read(0x60, &INFO_RESPONSE_M0[1..7]);
+
     let mut atecc = Atecc::new(hal);
     let revision = block_on(atecc.info_revision()).expect("info_revision under polling");
     assert_eq!(revision, [0x00, 0x00, 0x60, 0x02]);

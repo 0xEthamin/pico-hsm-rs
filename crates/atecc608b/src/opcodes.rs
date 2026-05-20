@@ -31,9 +31,20 @@ pub const WORD_ADDRESS_COMMAND: u8 = 0x03;
 /// Minimum duration SDA must be held low to wake the chip (datasheet `tWLO`).
 pub const WAKE_LOW_DURATION_US: u32 = 60;
 
-/// Time to wait after the wake pulse before the first I2C transaction
-/// (datasheet `tWHI`).
-pub const WAKE_DELAY_US: u32 = 1_500;
+/// Time to wait after the wake pulse before the first I2C transaction.
+///
+/// The datasheet specifies two relevant timings here:
+/// - `tWHI`: 1500 us minimum, the legacy I2C-bus-recovery delay,
+/// - `tHTSU`: 4100 us maximum, the host-to-target setup time before the
+///   chip will ACK its address.
+///
+/// CryptoAuthLib historically uses 1500 us and it works on most chip
+/// revisions, but some 608B silicon needs the full `tHTSU` window. We
+/// pick 4500 us as a single delay that covers both with margin. The
+/// extra ~3 ms over the strict `tWHI` is invisible to the user (PIN
+/// operations take tens of ms anyway) and removes a class of "first
+/// transaction NACKs" bring-up bugs.
+pub const WAKE_DELAY_US: u32 = 4_500;
 
 /// Bytes returned by the chip after a successful wake.
 pub const WAKE_RESPONSE_OK: [u8; 4] = [0x04, 0x11, 0x33, 0x43];

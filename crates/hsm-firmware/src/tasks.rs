@@ -33,8 +33,8 @@ use atecc608b::Slot;
 use hsm_crypto_service::{Clock, CryptoService, CryptoServiceError};
 use hsm_firmware_logic::{Event, TOUCH_TIMEOUT_MS};
 use hsm_usb_protocol::commands::{
-    parse_set_pin, parse_sign, parse_slot_only, parse_unblock_pin, parse_verify_pin,
-    CommandOpcode,
+    parse_factory_reset, parse_set_pin, parse_set_puk, parse_sign, parse_slot_only,
+    parse_unblock_pin, parse_verify_pin, CommandOpcode,
 };
 use hsm_usb_protocol::responses::ResponseStatus;
 use hsm_usb_protocol::Frame;
@@ -138,6 +138,11 @@ where
         CommandOpcode::SetPin => handle_set_pin(service, frame.payload, tx_buf).await,
         CommandOpcode::UnblockPin => handle_unblock_pin(service, frame.payload, tx_buf).await,
         CommandOpcode::GetPinStatus => handle_get_pin_status(service, tx_buf).await,
+        CommandOpcode::SetPuk => handle_set_puk(service, frame.payload, tx_buf).await,
+        CommandOpcode::FactoryReset =>
+        {
+            handle_factory_reset(service, frame.payload, tx_buf).await
+        }
         // Provisioning and lock paths are not handled here: they are
         // dangerous and must be implemented behind dedicated double-confirm
         // logic. For now, surface them as "not yet implemented".
@@ -374,6 +379,50 @@ where
         Err(_) => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
     };
     match service.unblock_pin(&puk, &new_pin, &io_key).await
+    {
+        Ok(()) => write_status(tx_buf, ResponseStatus::Ok, &[]),
+        Err(err) => write_error(tx_buf, &err),
+    }
+}
+
+async fn handle_set_puk<H, C>(
+    service: &mut CryptoService<H, C>,
+    payload: &[u8],
+    tx_buf: &mut [u8],
+) -> usize
+where
+    H: AteccHal,
+    C: Clock,
+    H::Error: core::fmt::Debug,
+{
+    let (old, new, io_key) = match parse_set_puk(payload)
+    {
+        Ok(v) => v,
+        Err(_) => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
+    };
+    match service.set_puk(&old, &new, &io_key).await
+    {
+        Ok(()) => write_status(tx_buf, ResponseStatus::Ok, &[]),
+        Err(err) => write_error(tx_buf, &err),
+    }
+}
+
+async fn handle_factory_reset<H, C>(
+    service: &mut CryptoService<H, C>,
+    payload: &[u8],
+    tx_buf: &mut [u8],
+) -> usize
+where
+    H: AteccHal,
+    C: Clock,
+    H::Error: core::fmt::Debug,
+{
+    let (pin, io_key) = match parse_factory_reset(payload)
+    {
+        Ok(v) => v,
+        Err(_) => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
+    };
+    match service.factory_reset(&pin, &io_key).await
     {
         Ok(()) => write_status(tx_buf, ResponseStatus::Ok, &[]),
         Err(err) => write_error(tx_buf, &err),

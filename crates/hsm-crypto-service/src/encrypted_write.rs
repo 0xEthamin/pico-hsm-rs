@@ -25,6 +25,8 @@
 //! This module exposes the pure host-side helpers. The orchestration
 //! against the live chip lives in [`crate::service::CryptoService`].
 
+use atecc608b::command::read_write::data_address;
+use atecc608b::Slot;
 use sha2::{Digest, Sha256};
 
 /// Length of an ATECC chip serial number in bytes (as read from the
@@ -108,15 +110,20 @@ pub fn encrypt_payload(
 /// Compute the MAC that the chip expects to find appended to the
 /// ciphertext in an encrypted write.
 ///
-/// `target_slot` is the slot being written (e.g. 5 for the PIN hash).
+/// `target_slot` is the slot being written (e.g. slot 5 for the PIN hash).
 /// `target_block` is which 32-byte block within the slot (always 0 for
 /// our single-block slots).
+///
+/// The slot/block address bytes are derived via
+/// [`atecc608b::command::read_write::data_address`] so this module never
+/// duplicates the chip's address-byte layout: a single source of truth
+/// lives in the driver.
 #[must_use]
 pub fn write_mac(
     io_key: &[u8; SLOT_VALUE_LEN],
     session_key: &[u8; SLOT_VALUE_LEN],
     plaintext: &[u8; SLOT_VALUE_LEN],
-    target_slot: u8,
+    target_slot: Slot,
     target_block: u8,
     chip_serial: &[u8; CHIP_SERIAL_LEN],
 ) -> [u8; SLOT_VALUE_LEN]
@@ -126,11 +133,11 @@ pub fn write_mac(
     // for encrypted 32-byte writes set both the "32 byte" and
     // "encrypted" flags in param1.
     let param1 = ZONE_DATA | 0x80 | 0x40;
-    // param2 is the address: slot in the high nibble of the lower byte,
-    // block in the lower 4 bits of the upper byte. The exact bit layout
-    // is documented in the read_write module of the driver.
-    let param2_lo = (target_slot & 0x0F) << 3;
-    let param2_hi = target_block & 0x07;
+    // param2 is the same little-endian u16 the driver puts on the wire:
+    // see `data_address` for the slot/block/offset bit layout.
+    let address = data_address(target_slot, target_block, 0);
+    let param2_lo = (address & 0xFF) as u8;
+    let param2_hi = (address >> 8) as u8;
 
     let mut hasher = Sha256::new();
     hasher.update(io_key);
@@ -220,8 +227,9 @@ mod tests
         let session = [0x22u8; SLOT_VALUE_LEN];
         let plaintext = [0x33u8; SLOT_VALUE_LEN];
         let serial = [0x44u8; CHIP_SERIAL_LEN];
-        let m1 = write_mac(&io_key, &session, &plaintext, 5, 0, &serial);
-        let m2 = write_mac(&io_key, &session, &plaintext, 5, 0, &serial);
+        let slot = Slot::new(5).unwrap();
+        let m1 = write_mac(&io_key, &session, &plaintext, slot, 0, &serial);
+        let m2 = write_mac(&io_key, &session, &plaintext, slot, 0, &serial);
         assert_eq!(m1, m2);
     }
 
@@ -232,8 +240,10 @@ mod tests
         let session = [0x22u8; SLOT_VALUE_LEN];
         let plaintext = [0x33u8; SLOT_VALUE_LEN];
         let serial = [0x44u8; CHIP_SERIAL_LEN];
-        let m_slot_5 = write_mac(&io_key, &session, &plaintext, 5, 0, &serial);
-        let m_slot_6 = write_mac(&io_key, &session, &plaintext, 6, 0, &serial);
+        let slot_5 = Slot::new(5).unwrap();
+        let slot_6 = Slot::new(6).unwrap();
+        let m_slot_5 = write_mac(&io_key, &session, &plaintext, slot_5, 0, &serial);
+        let m_slot_6 = write_mac(&io_key, &session, &plaintext, slot_6, 0, &serial);
         assert_ne!(m_slot_5, m_slot_6);
     }
 

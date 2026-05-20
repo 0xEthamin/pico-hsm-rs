@@ -73,6 +73,10 @@ embedded-hal-async = "1.0"
 # Heapless containers for no_std payload buffers.
 heapless           = { version = "0.9",  default-features = false }
 
+# Static-allocation cell, replaces unsafe `static mut` for one-shot init
+# of large structures borrowed by embassy tasks.
+static_cell        = "2"
+
 # Logging / panic.
 defmt              = "1.1"
 defmt-rtt          = "1.2"

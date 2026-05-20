@@ -26,7 +26,8 @@ use crate::pin::{
 };
 use crate::session::{Clock, Session};
 use crate::slots::{
-    PIN_MAX_RETRIES, PUK_MAX_RETRIES, SLOT_IO_KEY, SLOT_PIN_HASH, SLOT_PRIMARY, SLOT_PUK_HASH,
+    PIN_DEFAULT, PIN_MAX_RETRIES, PUK_MAX_RETRIES, SLOT_IO_KEY, SLOT_PIN_HASH, SLOT_PRIMARY,
+    SLOT_PUK_HASH,
 };
 
 /// Convenience alias for the service's result type.
@@ -240,7 +241,11 @@ where
         self.write_slot_encrypted(SLOT_PIN_HASH, &new_pin_hash, io_key, &serial)
             .await?;
 
-        // Refresh PUK counter to a fresh batch.
+        // Refresh PUK counter to a fresh batch. Done AFTER the encrypted
+        // write rather than before, so that a failure during the write
+        // (NACK, comm error, etc) leaves the PUK counter consumed instead
+        // of granting a free retry window. Conservative trade-off: a
+        // valid PUK followed by a hardware glitch costs one PUK attempt.
         self.refresh_counter_batch(CounterId::Counter1, PUK_MAX_RETRIES).await?;
 
         // Reset PIN counter too: the user got a fresh PIN slate.
@@ -284,6 +289,113 @@ where
         self.refresh_counter_batch(CounterId::Counter0, PIN_MAX_RETRIES).await?;
 
         self.session.touch(now);
+        Ok(())
+    }
+
+    /// Change the PUK.
+    ///
+    /// Requires an active PIN session: knowing the current PIN
+    /// authorises rotating the PUK that backs it. The `old_puk` field is
+    /// passed for forward compatibility with a defence-in-depth pass
+    /// that would re-verify it on the chip; the current implementation
+    /// relies on the PIN session alone.
+    ///
+    /// Rewrites slot 6 with `SHA-256(new_puk || puk_salt)` using the
+    /// encrypted-write protocol against the IO key, then refreshes
+    /// Counter1 to grant the user a fresh PUK batch.
+    ///
+    /// # Errors
+    /// - [`CryptoServiceError::PinRequired`] if no session is active.
+    /// - [`CryptoServiceError::InvalidFormat`] if `new_puk` is not 8 digits.
+    /// - [`CryptoServiceError::Atecc`] for chip-level errors.
+    pub async fn set_puk(
+        &mut self,
+        _old_puk: &[u8; PUK_LEN],
+        new_puk: &[u8; PUK_LEN],
+        io_key: &[u8; SLOT_VALUE_LEN],
+    ) -> ServiceResult<(), H::Error>
+    {
+        validate_digits(new_puk)?;
+
+        let now = self.clock.now_ms();
+        if !self.session.is_active(now)
+        {
+            return Err(CryptoServiceError::PinRequired);
+        }
+
+        let serial = self.cached_serial().await?;
+        let new_puk_hash = puk_hash(new_puk, &puk_salt(&serial));
+
+        self.write_slot_encrypted(SLOT_PUK_HASH, &new_puk_hash, io_key, &serial)
+            .await?;
+
+        // Refresh PUK counter so the user starts a fresh batch with the
+        // new PUK.
+        self.refresh_counter_batch(CounterId::Counter1, PUK_MAX_RETRIES).await?;
+
+        self.session.touch(now);
+        Ok(())
+    }
+
+    /// Revert the chip's reversible state to factory defaults.
+    ///
+    /// Steps:
+    /// 1. Verify the current PIN (opens a fresh session, consumes one
+    ///    Counter0 slot).
+    /// 2. Regenerate the private key in slots 0..=4 via `GenKey(create)`.
+    ///    The old keys are destroyed in the process. Public keys served
+    ///    after this call differ from before.
+    /// 3. Rewrite slot 5 with the hash of [`PIN_DEFAULT`] (`"0000"`).
+    ///
+    /// What this does **not** do:
+    /// - It does not reset Counter0 or Counter1 to zero. These are
+    ///   hardware-monotonic; the only operation available is to bump
+    ///   them past the next batch boundary, which this method does for
+    ///   Counter0 (the verify already did one cycle of refresh).
+    /// - It does not touch slot 6 (PUK), slot 7 (reserved), or slot 8
+    ///   (IO key). The PUK survives a factory reset by design: it is
+    ///   the safety net if the new default PIN is forgotten.
+    ///
+    /// # Errors
+    /// - Whatever [`Self::verify_pin`] can return for a bad PIN.
+    /// - [`CryptoServiceError::Atecc`] if any of the GenKey calls or
+    ///   the encrypted write fails.
+    pub async fn factory_reset(
+        &mut self,
+        pin: &[u8; PIN_LEN],
+        io_key: &[u8; SLOT_VALUE_LEN],
+    ) -> ServiceResult<(), H::Error>
+    {
+        validate_digits(pin)?;
+
+        // Step 1: open a PIN session. Fails fast if PIN is wrong.
+        self.verify_pin(pin).await?;
+
+        // Step 2: regenerate the P-256 keys in the identity slots. We
+        // walk slots 0..=4 inclusive. Slot 7 is reserved and not yet
+        // ECC-configured, so we skip it.
+        for slot_idx in 0u8..=4
+        {
+            // Construction via const_new is fine here: indices are
+            // statically known in-range.
+            let slot = Slot::const_new(slot_idx);
+            // `genkey_create` returns the new public key but we do not
+            // need it here; the host can re-query via `get_pubkey`.
+            let _ = self.atecc.genkey_create(slot).await?;
+        }
+
+        // Step 3: rewrite slot 5 with the default PIN's hash.
+        let serial = self.cached_serial().await?;
+        let default_hash = pin_hash(&PIN_DEFAULT, &pin_salt(&serial));
+        self.write_slot_encrypted(SLOT_PIN_HASH, &default_hash, io_key, &serial)
+            .await?;
+        self.refresh_counter_batch(CounterId::Counter0, PIN_MAX_RETRIES).await?;
+
+        // Close the session: the user must re-verify with the new
+        // default PIN before performing any further authenticated
+        // operation. This makes the reset feel discrete from the
+        // outside.
+        self.session.close();
         Ok(())
     }
 
@@ -490,7 +602,7 @@ where
             io_key,
             &session_key,
             plaintext,
-            target_slot.as_u8(),
+            target_slot,
             0,
             chip_serial,
         );
@@ -511,9 +623,33 @@ where
 /// `batch_size` is 5 for PIN, 10 for PUK. The convention is that the
 /// counter is bumped up to the next multiple of `batch_size` on every
 /// successful verification, so the number of attempts remaining is
-/// `batch_size - (count % batch_size)`. When `count` lands exactly on a
-/// multiple, the chip has just been refreshed and a full batch is
-/// available.
+/// `batch_size - (count % batch_size)`.
+///
+/// # Ambiguous boundary
+///
+/// When `count` lands exactly on a multiple of `batch_size`, the function
+/// returns `batch_size`. This single output value covers two distinct
+/// physical situations:
+///
+/// 1. The chip has just been refreshed by a successful verify, and a full
+///    fresh batch of attempts is now available (the common case).
+/// 2. The user has just consumed the last attempt of a batch and the
+///    chip has not yet been refreshed (`count = (n+1) * batch_size` after
+///    the chip's auto-bump on the failing CheckMac).
+///
+/// Both interpretations happen to give "the chip allows `batch_size` more
+/// CheckMacs from this counter value" by construction of the LimitedUse
+/// mechanism, so the function returning `batch_size` is semantically
+/// correct in either case.
+///
+/// # Invariant assumed by callers
+///
+/// Callers in [`CryptoService`] guarantee that `count` is read from the
+/// chip after a refresh has happened (or before any verify in a fresh
+/// session). They never observe an intermediate state where the counter
+/// is at a multiple but the user is mid-failure. This invariant is
+/// maintained because the refresh is performed on the success path
+/// immediately after the chip's auto-bump.
 fn retries_remaining(count: u32, batch_size: u8) -> u8
 {
     let batch = u32::from(batch_size);

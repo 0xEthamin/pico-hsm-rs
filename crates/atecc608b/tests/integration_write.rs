@@ -17,6 +17,7 @@ use atecc608b::command::read_write::{
     ENCRYPTED_WRITE_DATA_SIZE,
     WORD_SIZE,
 };
+use atecc608b::opcodes::{WAKE_DELAY_US, WAKE_LOW_DURATION_US};
 use atecc608b::{AteccError, ChipError, Slot};
 
 /// Wake response bytes from a healthy chip.
@@ -28,8 +29,8 @@ const ADDR: u8 = 0x60;
 /// Setup the mock to expect one wake sequence.
 fn expect_wake(hal: &mut MockHal)
 {
-    hal.expect_pulse_sda_low(60);
-    hal.expect_delay_us(1500);
+    hal.expect_pulse_sda_low(WAKE_LOW_DURATION_US);
+    hal.expect_delay_us(WAKE_DELAY_US);
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 

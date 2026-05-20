@@ -8,16 +8,20 @@
 //!    - GP16 output : green status LED.
 //!    - GP17 output : yellow touch-awaiting LED.
 //! 3. Build the USB-HID stack and split it into reader/writer.
-//! 4. Build the (stub) ATECC HAL on I2C0.
+//! 4. Build the ATECC HAL on I2C0 (SCL=GP5, SDA=GP4).
 //! 5. Spawn the auxiliary tasks: USB run, state machine, animation, touch.
 //! 6. Fire `Event::BootComplete` so the state machine leaves the boot state.
 //! 7. Enter the dispatch loop in the main task.
 //!
-//! The HAL implementation against the real RP2040 I2C peripheral lives in
-//! [`crate::hal_rp2040`] and is currently a stub. Until it is filled in,
-//! every ATECC call returns an error; the USB stack itself still
-//! enumerates and responds with the appropriate `AteccCommunicationError`
-//! status.
+//! # `static_cell` instead of `static mut`
+//!
+//! Two pieces of state need to live in `static` storage so the embassy
+//! USB stack can borrow them with a `'static` lifetime: the descriptor
+//! buffers and the HID class state. The idiomatic way to allocate these
+//! without `unsafe` is [`static_cell::StaticCell`], which lets the runtime
+//! check at boot that the storage is initialised exactly once. The price
+//! paid is a one-shot `init` call returning `&'static mut T`; the runtime
+//! cost is a single atomic flag flip.
 
 #![no_std]
 #![no_main]
@@ -29,6 +33,7 @@ use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_time::Instant;
 use embassy_usb::class::hid::State;
 use panic_probe as _;
+use static_cell::StaticCell;
 
 use atecc608b::Atecc;
 use hsm_crypto_service::{Clock, CryptoService};
@@ -45,14 +50,15 @@ mod usb;
 use crate::channels::post_event;
 use crate::usb::{build_usb, UsbBuffers};
 
-/// Static descriptor / control buffers. embassy-usb borrows these for the
-/// lifetime of the device.
-static mut USB_BUFFERS: UsbBuffers = UsbBuffers::new();
+/// Storage for the USB descriptor / control buffers. The contents are
+/// borrowed by the USB device for the rest of the program. Initialised
+/// once at boot via `init`.
+static USB_BUFFERS: StaticCell<UsbBuffers> = StaticCell::new();
 
-/// Static HID class state. Separate from [`USB_BUFFERS`] because `State`
-/// is invariant over its lifetime parameter, which forces it to share a
-/// single named lifetime with the device borrow.
-static mut HID_STATE: State<'static> = State::new();
+/// Storage for the HID class state. Kept separate from `USB_BUFFERS`
+/// because `State` is invariant over its lifetime parameter, which
+/// forces it to share a single named lifetime with the device borrow.
+static HID_STATE: StaticCell<State<'static>> = StaticCell::new();
 
 /// Clock backed by `embassy_time::Instant`. Provides milliseconds since
 /// boot, monotonic, used by the PIN session timeout.
@@ -82,22 +88,10 @@ async fn main(spawner: Spawner)
 
     info!("mini-hsm firmware booted");
 
-    // Take 'static mutable references to the USB statics. Done once at
-    // boot, before any other task can touch them, so a single thread of
-    // execution holds the references. After this point the references are
-    // moved into the USB stack and live there for the rest of the program.
-    //
-    // SAFETY: see the comment above.
-    let buffers: &'static mut UsbBuffers = unsafe
-    {
-        #[allow(static_mut_refs)]
-        &mut USB_BUFFERS
-    };
-    let hid_state: &'static mut State<'static> = unsafe
-    {
-        #[allow(static_mut_refs)]
-        &mut HID_STATE
-    };
+    // Initialise the static storage exactly once. `init` returns a
+    // `&'static mut T` borrowed from the cell.
+    let buffers = USB_BUFFERS.init(UsbBuffers::new());
+    let hid_state = HID_STATE.init(State::new());
 
     let (usb_device, rx, tx) = build_usb(peripherals.USB, buffers, hid_state);
 
@@ -113,15 +107,24 @@ async fn main(spawner: Spawner)
 
     let service = CryptoService::new(atecc, EmbassyClock);
 
-    // Spawn the auxiliary tasks. Each `spawner.spawn(...)` call returns
-    // `()`; the `#[embassy_executor::task]` macro wraps the task body in
-    // a function that returns `Result<SpawnToken, SpawnError>`. The
-    // unwrap on the inner result cannot fail at boot because the task
-    // queue is empty.
-    spawner.spawn(tasks::usb_run_task(usb_device).unwrap());
-    spawner.spawn(state::state_task().unwrap());
-    spawner.spawn(animation::animation_task(led_green, led_yellow).unwrap());
-    spawner.spawn(touch::touch_task(button).unwrap());
+    // Spawn the auxiliary tasks. `spawner.spawn` returns `()`; the
+    // `#[embassy_executor::task]` macro wraps the task body in a function
+    // returning `Result<SpawnToken, SpawnError>` which we expect here.
+    // `SpawnError` only fires when the task pool is full, which cannot
+    // happen at boot with the queue empty.
+    spawner.spawn(
+        tasks::usb_run_task(usb_device).expect("failed to spawn USB run task"),
+    );
+    spawner.spawn(
+        state::state_task().expect("failed to spawn state machine task"),
+    );
+    spawner.spawn(
+        animation::animation_task(led_green, led_yellow)
+            .expect("failed to spawn animation task"),
+    );
+    spawner.spawn(
+        touch::touch_task(button).expect("failed to spawn touch task"),
+    );
 
     // Now that every auxiliary task is up, tell the state machine that
     // boot is complete so it leaves the Booting state.

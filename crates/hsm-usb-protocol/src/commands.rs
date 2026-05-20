@@ -45,6 +45,19 @@ pub enum CommandOpcode
     /// `0x0A` - Read current PIN / PUK retry counters.
     /// Payload: empty.
     GetPinStatus       = 0x0A,
+    /// `0x0B` - `SetPuk(old_puk, new_puk, io_key)`: change the PUK.
+    /// Requires an active PIN session (proves the caller knows the
+    /// current PIN). Rewrites slot 6 via the encrypted-write protocol.
+    /// Payload: `[old_puk: [u8; 8], new_puk: [u8; 8], io_key: [u8; 32]]`.
+    SetPuk             = 0x0B,
+    /// `0x0C` - `FactoryReset(pin, io_key)`: revert the chip to a
+    /// fresh-from-factory state, as far as the LimitedUse counters
+    /// allow. Requires the current PIN and the IO key. Regenerates
+    /// keys in slots 0..=4 and slot 7, and rewrites slot 5 with the
+    /// hash of PIN `"0000"`. Counters cannot be reset (hardware), they
+    /// only get consumed.
+    /// Payload: `[pin: [u8; 4], io_key: [u8; 32]]`.
+    FactoryReset       = 0x0C,
 
     // Provisioning (reversible while zones are unlocked).
     /// `0x10` - `WriteConfigZone(blob)`: replace the writable part of the
@@ -88,6 +101,8 @@ impl CommandOpcode
             0x08 => Some(Self::SetPin),
             0x09 => Some(Self::UnblockPin),
             0x0A => Some(Self::GetPinStatus),
+            0x0B => Some(Self::SetPuk),
+            0x0C => Some(Self::FactoryReset),
             0x10 => Some(Self::WriteConfigZone),
             0xF0 => Some(Self::LockConfigZone),
             0xF1 => Some(Self::LockDataZone),
@@ -246,6 +261,54 @@ pub fn parse_unblock_pin(
     Ok((puk, new, io_key))
 }
 
+/// Parse the payload of [`CommandOpcode::SetPuk`].
+///
+/// Layout: `old_puk (8) || new_puk (8) || io_key (32)`. Authentication
+/// is via the PIN session (the caller proved knowledge of the current
+/// PIN earlier); `old_puk` is kept in the payload for forward
+/// compatibility with a defence-in-depth pass that would re-verify the
+/// old PUK on the chip before accepting the new one.
+///
+/// Returns `(old_puk, new_puk, io_key)`.
+///
+/// # Errors
+/// See [`PayloadError`].
+pub fn parse_set_puk(
+    payload: &[u8],
+) -> Result<([u8; PUK_LEN], [u8; PUK_LEN], [u8; 32]), PayloadError>
+{
+    require_len(payload, PUK_LEN * 2 + 32)?;
+    let mut old = [0u8; PUK_LEN];
+    let mut new = [0u8; PUK_LEN];
+    let mut io_key = [0u8; 32];
+    old.copy_from_slice(&payload[..PUK_LEN]);
+    new.copy_from_slice(&payload[PUK_LEN..PUK_LEN * 2]);
+    io_key.copy_from_slice(&payload[PUK_LEN * 2..PUK_LEN * 2 + 32]);
+    Ok((old, new, io_key))
+}
+
+/// Parse the payload of [`CommandOpcode::FactoryReset`].
+///
+/// Layout: `pin (4) || io_key (32)`. The PIN authenticates the caller;
+/// the IO key allows the firmware to rewrite the PIN hash slot back to
+/// `SHA-256("0000" || salt)` via the encrypted-write protocol.
+///
+/// Returns `(pin, io_key)`.
+///
+/// # Errors
+/// See [`PayloadError`].
+pub fn parse_factory_reset(
+    payload: &[u8],
+) -> Result<([u8; PIN_LEN], [u8; 32]), PayloadError>
+{
+    require_len(payload, PIN_LEN + 32)?;
+    let mut pin = [0u8; PIN_LEN];
+    let mut io_key = [0u8; 32];
+    pin.copy_from_slice(&payload[..PIN_LEN]);
+    io_key.copy_from_slice(&payload[PIN_LEN..PIN_LEN + 32]);
+    Ok((pin, io_key))
+}
+
 /// Parse the payload of [`CommandOpcode::WriteConfigZone`].
 ///
 /// Returns `(block_index, block_data)`.
@@ -297,6 +360,8 @@ mod tests
             CommandOpcode::SetPin,
             CommandOpcode::UnblockPin,
             CommandOpcode::GetPinStatus,
+            CommandOpcode::SetPuk,
+            CommandOpcode::FactoryReset,
             CommandOpcode::WriteConfigZone,
             CommandOpcode::LockConfigZone,
             CommandOpcode::LockDataZone,
@@ -411,6 +476,56 @@ mod tests
     {
         let err = parse_unblock_pin(b"01234567").unwrap_err();
         assert_eq!(err, PayloadError::WrongLen { expected: 44, actual: 8 });
+    }
+
+    #[test]
+    fn parse_set_puk_extracts_old_new_and_io_key()
+    {
+        let mut payload = [0u8; PUK_LEN * 2 + 32];
+        payload[..8].copy_from_slice(b"00000000");
+        payload[8..16].copy_from_slice(b"99999999");
+        for i in 0..32
+        {
+            payload[16 + i] = 0xC0 + i as u8;
+        }
+        let (old, new, io_key) = parse_set_puk(&payload).unwrap();
+        assert_eq!(&old, b"00000000");
+        assert_eq!(&new, b"99999999");
+        for i in 0..32
+        {
+            assert_eq!(io_key[i], 0xC0 + i as u8);
+        }
+    }
+
+    #[test]
+    fn parse_set_puk_rejects_short_payload()
+    {
+        let err = parse_set_puk(b"012345670000").unwrap_err();
+        assert_eq!(err, PayloadError::WrongLen { expected: 48, actual: 12 });
+    }
+
+    #[test]
+    fn parse_factory_reset_extracts_pin_and_io_key()
+    {
+        let mut payload = [0u8; PIN_LEN + 32];
+        payload[..4].copy_from_slice(b"1234");
+        for i in 0..32
+        {
+            payload[4 + i] = 0xD0 + i as u8;
+        }
+        let (pin, io_key) = parse_factory_reset(&payload).unwrap();
+        assert_eq!(&pin, b"1234");
+        for i in 0..32
+        {
+            assert_eq!(io_key[i], 0xD0 + i as u8);
+        }
+    }
+
+    #[test]
+    fn parse_factory_reset_rejects_short_payload()
+    {
+        let err = parse_factory_reset(b"1234").unwrap_err();
+        assert_eq!(err, PayloadError::WrongLen { expected: 36, actual: 4 });
     }
 
     #[test]

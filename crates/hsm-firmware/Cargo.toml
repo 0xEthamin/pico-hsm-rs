@@ -29,6 +29,13 @@ usbd-hid          = { workspace = true, features = ["defmt"] }
 cortex-m          = { workspace = true }
 cortex-m-rt       = { workspace = true }
 heapless          = { workspace = true }
+static_cell       = { workspace = true }
+
+# Enable `portable-atomic`'s `critical-section` fallback so that crates
+# relying on it (notably `static_cell`) get atomic CAS on Cortex-M0+
+# (thumbv6m has no native CAS). The actual critical section impl is
+# provided by `embassy-rp` via its `critical-section-impl` feature.
+portable-atomic   = { version = "1", default-features = false, features = ["critical-section"] }
 
 defmt             = { workspace = true }
 defmt-rtt         = { workspace = true }

@@ -11,9 +11,15 @@
 //! I2C peripherals do not expose a way to hold a single line low for an
 //! arbitrary duration without sending START / data / STOP, so we
 //! temporarily reclaim the SDA pin from the I2C controller, drive it as
-//! an output low for the required time, then release it. Pull-ups on the
-//! bus return SDA to high after the release, and the chip enters the
-//! awake state within `tHTSU = 4.1 ms`.
+//! an output low for the requested duration, then release it. Pull-ups
+//! on the bus return SDA to high after the release.
+//!
+//! The post-pulse wait (`tHTSU`, ~4.1 ms before the chip responds to I2C)
+//! is the **driver's** responsibility, not the HAL's: [`crate::tasks`]
+//! calls `atecc608b::wake::wake`, which performs `pulse_sda_low` followed
+//! by a `delay_us(WAKE_DELAY_US)` of its own. Keeping the delay in the
+//! driver lets us tune it without recompiling the firmware crate and
+//! avoids a duplicated source of truth.
 //!
 //! # Resource management
 //!
@@ -41,11 +47,6 @@ bind_interrupts!(pub struct Irqs
 /// "fast mode" 400 kHz to match the typical layout constraints of
 /// breadboard / 2-layer PCB hardware. Lower if signal integrity is poor.
 pub const I2C_FREQ_HZ: u32 = 400_000;
-
-/// Wait period after the wake pulse before the ATECC will respond to a
-/// transaction. The datasheet calls this `tHTSU` and lists it as 4.1 ms
-/// max; we round up to 5 ms for headroom.
-const WAKE_RECOVERY_MS: u64 = 5;
 
 /// Error type returned by the RP2040 HAL.
 #[derive(Debug, defmt::Format)]
@@ -138,19 +139,19 @@ impl AteccHal for Rp2040Hal
         // NOT hold an I2c instance across this call: the I2c gets
         // reconstructed on the next i2c_write / i2c_read, which
         // reconfigures the pin in alternate function mode.
-        {
-            let mut sda_out = Output::new(self.sda.reborrow(), Level::Low);
-            // Hold low.
-            Timer::after(Duration::from_micros(u64::from(duration_us))).await;
-            // Set high to actively release the line before dropping
-            // (avoids a brief high-Z window where the line might droop
-            // on weak pull-ups).
-            sda_out.set_high();
-        }
-        // After dropping the Output, SDA returns to high-Z input. The
-        // external pull-ups (and the chip's internal pull-up) hold the
-        // line high. Wait for the chip to finish waking up.
-        Timer::after(Duration::from_millis(WAKE_RECOVERY_MS)).await;
+        //
+        // The post-pulse `tHTSU` wait happens in the driver (`wake::wake`
+        // calls `delay_us(WAKE_DELAY_US)` right after this returns), so
+        // this method does the pulse only.
+        let mut sda_out = Output::new(self.sda.reborrow(), Level::Low);
+        Timer::after(Duration::from_micros(u64::from(duration_us))).await;
+        // Drive high briefly before releasing, to avoid a high-Z window
+        // where the line could droop on weak pull-ups.
+        sda_out.set_high();
+        // Dropping the Output here returns SDA to high-Z input mode. The
+        // external pull-ups (and the chip's internal pull-up) keep the
+        // line high.
+        drop(sda_out);
         Ok(())
     }
 
