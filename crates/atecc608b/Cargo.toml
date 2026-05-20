@@ -1,8 +1,14 @@
 [package]
 name        = "atecc608b"
-version     = "0.1.0"
-edition     = "2024"
 description = "no_std async driver for the Microchip ATECC608B crypto authentication device."
+version     = { workspace = true }
+edition     = { workspace = true }
+authors     = { workspace = true }
+repository  = { workspace = true }
+license     = { workspace = true }
+keywords    = ["embedded-hal-async", "crypto", "atecc608b", "no_std", "hardware"]
+categories  = ["embedded", "cryptography", "no-std"]
+readme      = "README-ATECC608B.md"
 
 [features]
 default        = []
@@ -14,9 +20,6 @@ defmt          = ["dep:defmt"]
 mock-hal       = []
 
 [dependencies]
-embedded-hal-async = { workspace = true }
-heapless           = { workspace = true }
-
 # defmt is optional so the crate stays pure.
 defmt              = { workspace = true, optional = true }
 

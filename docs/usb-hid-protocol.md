@@ -45,10 +45,16 @@ truth for opcode values, payload formats, and parsing logic.
 | `0x05` | ReadConfigZone   | `block: u8` (0..=3)                                           | Returns 32 bytes of the configuration zone. Host issues 4 times to get all 128 bytes. |
 | `0x06` | ReadConfigSlot   | `slot: u8`                                                    | Returns 4 bytes (SlotConfig + KeyConfig).                                      |
 | `0x07` | VerifyPin        | `pin: [u8; 4]` (ASCII digits)                                 | Opens a 30 s PIN session. Wrong PIN increments Counter0 by 1.                  |
-| `0x08` | SetPin           | `old: [u8; 4], new: [u8; 4], io_key: [u8; 32]`                | Requires an active session. The host supplies the I/O Protection Key locally so the firmware can do the encrypted write. |
+| `0x08` | SetPin           | `old: [u8; 4], new: [u8; 4], io_key: [u8; 32]`                | Re-verifies `old` on the chip via CheckMac (consumes one Counter0 attempt, refreshed on success). No prior PIN session is required: this call both authenticates and opens / refreshes the session. |
 | `0x09` | UnblockPin       | `puk: [u8; 8], new_pin: [u8; 4], io_key: [u8; 32]`            | Resets the PIN. Wrong PUK increments Counter1 by 1.                            |
 | `0x0A` | GetPinStatus     | empty                                                         | Returns retry counters for PIN and PUK, and the "blocked" and "bricked" flags. |
-| `0x10` | WriteConfigZone  | `block: u8, data: [u8; 32]`                                   | Writes one 32-byte block of the configuration zone. Host issues 4 times.       |
+| `0x0B` | SetPuk           | `old_puk: [u8; 8], new_puk: [u8; 8], io_key: [u8; 32]`        | Requires an active PIN session. Re-verifies `old_puk` on the chip via CheckMac (consumes one Counter1 attempt, refreshed on success). |
+| `0x0D` | EmergencyReset   | `magic: [u8; 4] = BA DC 0F FE, io_key: [u8; 32]`              | **Last-chance recovery.** Only succeeds when both PIN and PUK batches are exhausted. Otherwise returns `EmergencyResetNotPermitted` with the actual tries remaining. Destroys user ECC keys, resets PIN to `0000`, generates fresh PUK (returned). No PIN required. |
+| `0x10` | WriteConfigZone  | `block: u8, data: [u8; 32]`                                   | Writes one 32-byte block of the configuration zone. Host issues 4 times. Reversible only while the config zone is unlocked. |
+| `0x11` | ProvisionSlot    | `slot: u8, value: [u8; 32]`                                   | Writes a 32-byte cleartext value into a data slot. Only accepted for slots 5 (PIN hash), 6 (PUK hash), and 8 (IO key). Only legal while the data zone is unlocked. |
+| `0x12` | ProvisionInitialPin | empty                                                      | Writes `SHA-256("0000" \|\| pin_salt)` into slot 5. The salt is derived on-chip from the chip serial; the host does not need to compute it. Only legal while the data zone is unlocked. |
+| `0x13` | ProvisionInitialPuk | empty                                                      | Generates a random 8-digit PUK from the chip RNG, writes `SHA-256(puk \|\| puk_salt)` into slot 6, and returns the PUK in the response payload. **One-time** read of the PUK. |
+| `0x14` | ProvisionIoKey   | empty                                                         | Generates 32 random bytes via the chip RNG, writes them into slot 8, and returns the value in the response payload. **One-time** read of the IO key. The host must persist it. |
 | `0xF0` | LockConfigZone   | `magic: [u8; 4], expected_crc: [u8; 2]`                       | **Irreversible.** Firmware verifies the chip's current configuration CRC equals `expected_crc` before issuing `Lock(config)`. |
 | `0xF1` | LockDataZone     | `magic: [u8; 4], expected_crc: [u8; 2]`                       | **Irreversible.** Verifies a CRC of the current data zone state.               |
 | `0xF2` | LockSlot         | `magic: [u8; 4], slot: u8`                                    | **Irreversible.** Permanently freezes one slot. Requires `KeyConfig.Lockable=1` on that slot. |
@@ -87,17 +93,18 @@ These match the `ResponseStatus` enum in
 | `0x0D` | PinBlocked               | PIN slot is hardware-blocked. Only `UnblockPin` can recover.             |
 | `0x0E` | WrongPuk                 | PUK was wrong. Payload first byte is "PUK tries remaining in this batch". |
 | `0x0F` | Bricked                  | PUK retries exhausted (Counter1 saturated). PUK feature unavailable. Signing remains possible if the user knows the PIN. |
+| `0x10` | EmergencyResetNotPermitted | `EmergencyReset` was attempted while the user still has PIN or PUK attempts. Payload: `[pin_tries_remaining, puk_tries_remaining]`. |
 
 ## Reserved opcode space
 
 The following opcodes are reserved for forthcoming commands. They are
-not yet implemented. The host CLI rejects them; the firmware returns
+not yet implemented. The host CLI rejects them: the firmware returns
 `InvalidCommand` (`0x01`).
 
 | Code   | Reserved name | Intended payload                                                | Status                                                                  |
 |--------|---------------|-----------------------------------------------------------------|-------------------------------------------------------------------------|
-| `0x0B` | SetPuk        | `old: [u8; 8], new: [u8; 8], io_key: [u8; 32]`                  | User-replaceable PUK, mirrors `SetPin`.                                 |
-| `0x0C` | FactoryReset  | `pin: [u8; 4], io_key: [u8; 32]`                                | Regenerates slots 0-4 and 7. Resets PIN to `0000`. PIN must be valid to authorize the reset. |
+| `0x0B` | SetPuk        | `old: [u8; 8], new: [u8; 8], io_key: [u8; 32]`                  | Implemented.                                                            |
+| `0x0D` | EmergencyReset | `magic: [u8; 4] = BA DC 0F FE, io_key: [u8; 32]`               | Implemented. Last-chance recovery for "PIN + PUK both lost AND both batches exhausted". Firmware refuses with `EmergencyResetNotPermitted` if either batch still has attempts. User loses ECC private keys. |
 
 The opcode space below `0xF0` is for routine commands; `0xF0` and above
 are reserved for the small family of permanent / irreversible commands.

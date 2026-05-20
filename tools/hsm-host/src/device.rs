@@ -1,8 +1,23 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! HID device abstraction.
 //!
 //! Wraps `hidapi` to find the mini-HSM dongle by VID/PID and exchange
-//! single 128-byte HID reports. The protocol is request/response: the
-//! host sends one report and reads exactly one back.
+//! single 128-byte HID reports. The protocol is request/response. 
+//! The host sends one report and reads exactly one back.
 
 use anyhow::{anyhow, bail, Context, Result};
 use hidapi::{HidApi, HidDevice};
@@ -16,8 +31,9 @@ pub fn open() -> Result<HidDevice>
     let api = HidApi::new().context("failed to initialise hidapi")?;
     let device = api
         .open(USB_VID, USB_PID)
-        .with_context(|| format!(
-            "failed to open HID device {:04X}:{:04X} -- is the dongle plugged in?",
+        .with_context(|| format!
+        (
+            "failed to open HID device {:04X}:{:04X}. Is the dongle plugged in?",
             USB_VID, USB_PID
         ))?;
     Ok(device)
@@ -36,7 +52,8 @@ pub fn enumerate() -> Result<()>
             matches += 1;
         }
         let marker = if is_mini_hsm { "<-- mini-HSM" } else { "" };
-        println!(
+        println!
+        (
             "{:04x}:{:04x} {} / {} {}",
             info.vendor_id(),
             info.product_id(),
@@ -50,29 +67,30 @@ pub fn enumerate() -> Result<()>
     Ok(())
 }
 
-/// Send a command and return the response payload (without the 3-byte
-/// frame header).
+/// Send a command and return the response payload 
+/// (without the 3-byte frame header).
 ///
 /// Returns `Err` if the chip responded with a non-`Ok` status. The error
 /// message includes the status code and any payload bytes the firmware
 /// included alongside (e.g. tries_remaining on WrongPin).
-pub fn send_command(
+pub fn send_command
+(
     device: &HidDevice,
     opcode: u8,
     payload: &[u8],
 ) -> Result<Vec<u8>>
 {
-    let request = Frame::to_report(opcode, payload)
-        .map_err(|e| anyhow!("failed to encode request frame: {:?}", e))?;
+    let request = Frame::to_report(opcode, payload).map_err
+    (|e| 
+        anyhow!("failed to encode request frame: {:?}", e)
+    )?;
 
     // hidapi requires a leading report-ID byte of 0 on platforms that do
     // not use numbered reports.
     let mut wire = [0u8; HID_REPORT_SIZE + 1];
     wire[0] = 0;
     wire[1..].copy_from_slice(&request);
-    device
-        .write(&wire)
-        .context("HID write failed")?;
+    device.write(&wire).context("HID write failed")?;
 
     let mut response = [0u8; HID_REPORT_SIZE];
     let n = device
@@ -89,13 +107,40 @@ pub fn send_command(
     if frame.opcode != ResponseStatus::Ok.as_u8()
     {
         let status_name = describe_status(frame.opcode);
+        
+        if frame.opcode == ResponseStatus::WrongPin.as_u8() && frame.payload.len() == 1
+        {
+            bail!(
+                "chip returned WrongPin: {} attempt(s) remaining before block",
+                frame.payload[0],
+            );
+        }
+        if frame.opcode == ResponseStatus::WrongPuk.as_u8() && frame.payload.len() == 1
+        {
+            bail!(
+                "chip returned WrongPuk: {} attempt(s) remaining before brick",
+                frame.payload[0],
+            );
+        }
+        if frame.opcode == ResponseStatus::EmergencyResetNotPermitted.as_u8()
+            && frame.payload.len() == 2
+        {
+            bail!(
+                "chip refused EmergencyReset: {} PIN attempt(s) and {} PUK attempt(s) \
+                 still remain. Use `verify-pin` / `unblock-pin` to recover instead.",
+                frame.payload[0],
+                frame.payload[1],
+            );
+        }
+
         if frame.payload.is_empty()
         {
             bail!("chip returned status 0x{:02x} ({status_name})", frame.opcode);
         }
         else
         {
-            bail!(
+            bail!
+            (
                 "chip returned status 0x{:02x} ({status_name}), data: {}",
                 frame.opcode,
                 hex::encode(frame.payload),
@@ -129,6 +174,7 @@ fn describe_status(byte: u8) -> &'static str
         Some(ResponseStatus::PinBlocked)              => "PinBlocked",
         Some(ResponseStatus::WrongPuk)                => "WrongPuk",
         Some(ResponseStatus::Bricked)                 => "Bricked",
+        Some(ResponseStatus::EmergencyResetNotPermitted) => "EmergencyResetNotPermitted",
         None => "Unknown",
     }
 }

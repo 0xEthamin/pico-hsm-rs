@@ -1,3 +1,10 @@
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Tuloup Simon <perso@simontuloup.fr>"]
+repository = "https://forge.simontuloup.fr/Simon/Mini-HSM"
+license = "GPL-3.0-or-later"
+
 [workspace]
 resolver = "2"
 members = [

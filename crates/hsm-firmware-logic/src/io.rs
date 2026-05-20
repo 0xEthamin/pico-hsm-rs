@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! GPIO abstractions: LEDs and the touch button.
 //!
 //! The hardware-facing implementations on the RP2040 use `embassy_rp::gpio`.
@@ -90,7 +105,7 @@ impl Debouncer
     {
         if level == self.stable
         {
-            // Same as currently accepted: reset any in-progress candidate.
+            // Same as currently accepted. Reset any in-progress candidate.
             self.candidate = self.stable;
             self.count = 0;
             return None;
@@ -209,7 +224,7 @@ mod tests
         }
         // The fifth flips it.
         assert_eq!(d.sample(true), Some(true));
-        assert_eq!(d.stable(), true);
+        assert!(d.stable());
     }
 
     #[test]
@@ -222,7 +237,7 @@ mod tests
             assert_eq!(d.sample(true), None);
             assert_eq!(d.sample(false), None);
         }
-        assert_eq!(d.stable(), false);
+        assert!(!d.stable());
     }
 
     #[test]
@@ -271,7 +286,7 @@ mod tests
         led.on(); // no-op transition count-wise
         led.off();
         assert_eq!(led.transitions, 2);
-        assert_eq!(led.state, false);
+        assert!(!led.state);
     }
 
     #[test]

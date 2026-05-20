@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Human-readable rendering of the configuration zone blob.
 //!
 //! Produces a multi-line text annotation that pairs every byte with its
@@ -135,7 +150,8 @@ fn write_key_configs(out: &mut String, bytes: &[u8])
         let lo = bytes[2 * slot];
         let hi = bytes[2 * slot + 1];
         let word = u16::from(lo) | (u16::from(hi) << 8);
-        let _ = writeln!(out,
+        let _ = writeln!
+        (   out,
             "  Slot {slot:2}: bytes {lo:02X} {hi:02X} -> 0x{word:04X}  {}",
             describe_key_config(word),
         );
@@ -170,7 +186,8 @@ fn decode_chip_mode(byte: u8) -> String
     };
     let watchdog = if wdg_long == 1 { "long" } else { "short" };
 
-    format!(
+    format!
+    (
         "I2C_Extra={i2c_extra}, TTL={ttl}, watchdog={watchdog}, clock_divider={clock}",
     )
 }
@@ -202,13 +219,16 @@ fn describe_slot_config(slot: u8, word: u16) -> String
 
     match slot
     {
-        5 | 6 => format!(
+        5 | 6 => format!
+        (
             "(data) ReadKey={read_key}, LimitedUse={limited_use}, IsSecret={is_secret}, WriteKey={write_key}, WriteConfig={wc}",
         ),
-        8 => format!(
+        8 => format!
+        (
             "(I/O master key) IsSecret={is_secret}, WriteConfig={wc}",
         ),
-        _ => format!(
+        _ => format!
+        (
             "(ECC) ExtSig={ext_sig}, IsSecret={is_secret}, GenKey={gen_key}, PrivWrite={priv_write}, WriteConfig={wc}",
         ),
     }
@@ -235,13 +255,15 @@ fn describe_key_config(word: u16) -> String
 
     if private == 1
     {
-        format!(
+        format!
+        (
             "Private={private}, PubInfo={pub_info}, KeyType={kt}, Lockable={lockable}, ReqAuth={req_auth}, AuthKey={auth_key}",
         )
     }
     else
     {
-        format!(
+        format!
+        (
             "Private={private}, KeyType={kt}, Lockable={lockable}",
         )
     }

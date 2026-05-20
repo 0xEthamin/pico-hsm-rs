@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! CRC-16 as used by the ATECC608B protocol.
 //!
 //! Parameters of the algorithm (Microchip uses the name "CRC-16/DNP" loosely.
@@ -12,7 +27,7 @@
 //! - Byte order    : low byte first when serialized on the wire
 //!
 //! The implementation is a faithful translation of the bit-by-bit routine in
-//! `lib/calib/calib_command.c` of Microchip's CryptoAuthLib. We deliberately
+//! `lib/calib/calib_command.c` of Microchip's `CryptoAuthLib`. We deliberately
 //! avoid a table-driven approach. The driver only computes a CRC over short
 //! packets at human time scales (microseconds), so the gain would be
 //! negligible while flash usage would grow.
@@ -87,7 +102,7 @@ mod tests
     /// 0x30, param1=0, param2=0x0000.
     ///
     /// The reference CRC for this exact frame, cross-checked against the C
-    /// implementation in CryptoAuthLib by running it on the same bytes, is
+    /// implementation in `CryptoAuthLib` by running it on the same bytes, is
     /// 0x5D03. On the wire it is serialized as `0x03 0x5D`.
     const INFO_FRAME_NO_CRC: [u8; 5] = [0x07, 0x30, 0x00, 0x00, 0x00];
     const INFO_FRAME_CRC: u16 = 0x5D03;

@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Commands sent from the host to the token.
 //!
 //! See [`crate::frame::Frame`] for the wire layout. The opcode byte is
@@ -30,7 +45,7 @@ pub enum CommandOpcode
     /// fits in a single report. The host issues this command four times,
     /// once per block, to assemble the full image.
     ReadConfigZone     = 0x05,
-    /// `0x06` - Read the 4-byte SlotConfig + KeyConfig for one slot.
+    /// `0x06` - Read the 4-byte `SlotConfig` + `KeyConfig` for one slot.
     /// Payload: `[slot: u8]`.
     ReadConfigSlot     = 0x06,
     /// `0x07` - `VerifyPin(pin)`: open a PIN session (30 s window).
@@ -50,14 +65,25 @@ pub enum CommandOpcode
     /// current PIN). Rewrites slot 6 via the encrypted-write protocol.
     /// Payload: `[old_puk: [u8; 8], new_puk: [u8; 8], io_key: [u8; 32]]`.
     SetPuk             = 0x0B,
-    /// `0x0C` - `FactoryReset(pin, io_key)`: revert the chip to a
-    /// fresh-from-factory state, as far as the LimitedUse counters
-    /// allow. Requires the current PIN and the IO key. Regenerates
-    /// keys in slots 0..=4 and slot 7, and rewrites slot 5 with the
-    /// hash of PIN `"0000"`. Counters cannot be reset (hardware), they
-    /// only get consumed.
-    /// Payload: `[pin: [u8; 4], io_key: [u8; 32]]`.
-    FactoryReset       = 0x0C,
+    /// `0x0D` - `EmergencyReset(magic, io_key)`: last-chance reset.
+    /// Requires that **both** PIN and PUK batches are exhausted. The
+    /// firmware refuses to run otherwise with the
+    /// `EmergencyResetNotPermitted` status (which carries the actual
+    /// tries-remaining figures in its payload).
+    ///
+    /// Regenerates the ECC private keys in slots 0..=4 and 7 (the
+    /// user's secrets are lost), resets PIN to `"0000"`, generates and
+    /// stores a fresh random PUK (returned in the response payload).
+    /// The user is granted one fresh batch of PIN attempts and one
+    /// fresh batch of PUK attempts.
+    ///
+    /// Protected against accidental invocation by a magic word
+    /// (`0xBADC0FFE`, little-endian on the wire). The CLI also
+    /// requires an interactive double-confirm before sending.
+    ///
+    /// Payload: `[magic: [u8; 4], io_key: [u8; 32]]` (36 bytes).
+    /// Response payload on success: `[new_puk: [u8; 8]]`.
+    EmergencyReset     = 0x0D,
 
     // Provisioning (reversible while zones are unlocked).
     /// `0x10` - `WriteConfigZone(blob)`: replace the writable part of the
@@ -65,6 +91,35 @@ pub enum CommandOpcode
     /// (this command is issued 4 times, once per block index 0..=3).
     /// Payload first byte is the block index, followed by the 32 bytes.
     WriteConfigZone    = 0x10,
+    /// `0x11` - `ProvisionSlot(slot, value)`: write a 32-byte cleartext
+    /// value into one of the data slots. Only accepted by the firmware
+    /// for the three policy-allowed slots (5, 6, 8). Used at
+    /// provisioning to install the initial PIN hash, PUK hash, and IO
+    /// key, before `LockDataZone`. Returns `InvalidSlot` for other
+    /// slots and chip-error after data lock.
+    /// Payload: `[slot: u8, value: [u8; 32]]`.
+    ProvisionSlot      = 0x11,
+    /// `0x12` - `ProvisionInitialPin`: write `SHA256("0000" || pin_salt)`
+    /// into slot 5 in cleartext, where `pin_salt` is derived from the
+    /// chip's serial. No payload. Used at provisioning instead of
+    /// `ProvisionSlot --slot 5` so that the host does not need to
+    /// reimplement the PIN-hash derivation. Returns `Ok` (empty
+    /// payload) on success.
+    ProvisionInitialPin = 0x12,
+    /// `0x13` - `ProvisionInitialPuk`: generate a fresh random 8-digit
+    /// PUK from the chip's RNG, compute its hash with the per-chip
+    /// salt, write the hash into slot 6 in cleartext, and return the
+    /// PUK in the response payload so the operator can record it.
+    /// **This is the only opportunity to learn the PUK.** No payload
+    /// from the host. Response: `[puk: [u8; 8]]`.
+    ProvisionInitialPuk = 0x13,
+    /// `0x14` - `ProvisionIoKey`: generate a fresh random 32-byte I/O
+    /// Protection Key from the chip's RNG, write it into slot 8 in
+    /// cleartext, and return it in the response payload so the host
+    /// can store it for later encrypted writes. **This is the only
+    /// opportunity to learn the IO key.** No payload from the host.
+    /// Response: `[io_key: [u8; 32]]`.
+    ProvisionIoKey      = 0x14,
 
     // Lock - isolated, protected by a magic word and a CRC. Never called
     // from automated flows: see crates/atecc608b/src/command/lock.rs and
@@ -102,8 +157,12 @@ impl CommandOpcode
             0x09 => Some(Self::UnblockPin),
             0x0A => Some(Self::GetPinStatus),
             0x0B => Some(Self::SetPuk),
-            0x0C => Some(Self::FactoryReset),
+            0x0D => Some(Self::EmergencyReset),
             0x10 => Some(Self::WriteConfigZone),
+            0x11 => Some(Self::ProvisionSlot),
+            0x12 => Some(Self::ProvisionInitialPin),
+            0x13 => Some(Self::ProvisionInitialPuk),
+            0x14 => Some(Self::ProvisionIoKey),
             0xF0 => Some(Self::LockConfigZone),
             0xF1 => Some(Self::LockDataZone),
             0xF2 => Some(Self::LockSlot),
@@ -160,6 +219,18 @@ pub const DIGEST_LEN: usize = 32;
 /// [`CommandOpcode::LockDataZone`], and [`CommandOpcode::LockSlot`].
 pub const LOCK_MAGIC_LEN: usize = 4;
 
+/// Length of the I/O Protection Key (slot 8 content), in bytes.
+pub const IO_KEY_LEN: usize = 32;
+
+/// Result of [`parse_set_pin`]: `(old_pin, new_pin, io_key)`.
+pub type SetPinParts = ([u8; PIN_LEN], [u8; PIN_LEN], [u8; IO_KEY_LEN]);
+
+/// Result of [`parse_unblock_pin`]: `(puk, new_pin, io_key)`.
+pub type UnblockPinParts = ([u8; PUK_LEN], [u8; PIN_LEN], [u8; IO_KEY_LEN]);
+
+/// Result of [`parse_set_puk`]: `(old_puk, new_puk, io_key)`.
+pub type SetPukParts = ([u8; PUK_LEN], [u8; PUK_LEN], [u8; IO_KEY_LEN]);
+
 /// Errors returned when a payload does not match the expected shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -173,6 +244,10 @@ pub enum PayloadError
         /// Number of bytes the caller actually provided.
         actual:   usize,
     },
+    /// A magic-word check failed. Used by commands that require an
+    /// explicit confirmation byte sequence in their payload to guard
+    /// against accidental invocation.
+    MagicMismatch,
 }
 
 /// Parse the payload of [`CommandOpcode::GetPubkey`] / `GenKey` / `ReadConfigSlot`.
@@ -195,7 +270,7 @@ pub fn parse_sign(payload: &[u8]) -> Result<(u8, [u8; DIGEST_LEN]), PayloadError
 {
     require_len(payload, 1 + DIGEST_LEN)?;
     let mut digest = [0u8; DIGEST_LEN];
-    digest.copy_from_slice(&payload[1..1 + DIGEST_LEN]);
+    digest.copy_from_slice(&payload[1..=DIGEST_LEN]);
     Ok((payload[0], digest))
 }
 
@@ -222,9 +297,7 @@ pub fn parse_verify_pin(payload: &[u8]) -> Result<[u8; PIN_LEN], PayloadError>
 ///
 /// # Errors
 /// See [`PayloadError`].
-pub fn parse_set_pin(
-    payload: &[u8],
-) -> Result<([u8; PIN_LEN], [u8; PIN_LEN], [u8; 32]), PayloadError>
+pub fn parse_set_pin(payload: &[u8]) -> Result<SetPinParts, PayloadError>
 {
     require_len(payload, PIN_LEN * 2 + 32)?;
     let mut old = [0u8; PIN_LEN];
@@ -247,9 +320,7 @@ pub fn parse_set_pin(
 ///
 /// # Errors
 /// See [`PayloadError`].
-pub fn parse_unblock_pin(
-    payload: &[u8],
-) -> Result<([u8; PUK_LEN], [u8; PIN_LEN], [u8; 32]), PayloadError>
+pub fn parse_unblock_pin(payload: &[u8]) -> Result<UnblockPinParts, PayloadError>
 {
     require_len(payload, PUK_LEN + PIN_LEN + 32)?;
     let mut puk = [0u8; PUK_LEN];
@@ -273,9 +344,7 @@ pub fn parse_unblock_pin(
 ///
 /// # Errors
 /// See [`PayloadError`].
-pub fn parse_set_puk(
-    payload: &[u8],
-) -> Result<([u8; PUK_LEN], [u8; PUK_LEN], [u8; 32]), PayloadError>
+pub fn parse_set_puk(payload: &[u8]) -> Result<SetPukParts, PayloadError>
 {
     require_len(payload, PUK_LEN * 2 + 32)?;
     let mut old = [0u8; PUK_LEN];
@@ -287,26 +356,98 @@ pub fn parse_set_puk(
     Ok((old, new, io_key))
 }
 
-/// Parse the payload of [`CommandOpcode::FactoryReset`].
+/// Magic word required in the payload of
+/// [`CommandOpcode::EmergencyReset`] to confirm the caller's intent.
+/// Picked to be improbable for any byte sequence arising from a typo
+/// or a buggy host. Same role as [`LOCK_CONFIG_MAGIC`] in the lock
+/// commands.
+pub const EMERGENCY_RESET_MAGIC: [u8; 4] = [0xBA, 0xDC, 0x0F, 0xFE];
+
+/// Parse the payload of [`CommandOpcode::EmergencyReset`].
 ///
-/// Layout: `pin (4) || io_key (32)`. The PIN authenticates the caller;
-/// the IO key allows the firmware to rewrite the PIN hash slot back to
-/// `SHA-256("0000" || salt)` via the encrypted-write protocol.
+/// Layout: `magic (4) || io_key (32)`. The magic must match
+/// [`EMERGENCY_RESET_MAGIC`]. No PIN is required since the use case
+/// is "PIN and PUK both forgotten / exhausted".
 ///
-/// Returns `(pin, io_key)`.
+/// Returns `io_key` once the magic is validated.
 ///
 /// # Errors
-/// See [`PayloadError`].
-pub fn parse_factory_reset(
-    payload: &[u8],
-) -> Result<([u8; PIN_LEN], [u8; 32]), PayloadError>
+/// - [`PayloadError::WrongLen`] if the payload is not exactly 36 bytes.
+/// - [`PayloadError::MagicMismatch`] if the first 4 bytes are not
+///   `EMERGENCY_RESET_MAGIC`.
+pub fn parse_emergency_reset(payload: &[u8]) -> Result<[u8; 32], PayloadError>
 {
-    require_len(payload, PIN_LEN + 32)?;
-    let mut pin = [0u8; PIN_LEN];
+    require_len(payload, 4 + 32)?;
+    if payload[0..4] != EMERGENCY_RESET_MAGIC
+    {
+        return Err(PayloadError::MagicMismatch);
+    }
     let mut io_key = [0u8; 32];
-    pin.copy_from_slice(&payload[..PIN_LEN]);
-    io_key.copy_from_slice(&payload[PIN_LEN..PIN_LEN + 32]);
-    Ok((pin, io_key))
+    io_key.copy_from_slice(&payload[4..4 + 32]);
+    Ok(io_key)
+}
+
+/// Magic word for [`CommandOpcode::LockConfigZone`]. Picked to be a
+/// distinctive 32-bit value (`DE AD BE EF`).
+pub const LOCK_CONFIG_MAGIC: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
+
+/// Magic word for [`CommandOpcode::LockDataZone`] (`CA FE BA BE`).
+pub const LOCK_DATA_MAGIC: [u8; 4] = [0xCA, 0xFE, 0xBA, 0xBE];
+
+/// Magic word for [`CommandOpcode::LockSlot`] (`F0 0D CA FE`).
+pub const LOCK_SLOT_MAGIC: [u8; 4] = [0xF0, 0x0D, 0xCA, 0xFE];
+
+/// Parse the payload of [`CommandOpcode::LockConfigZone`].
+///
+/// Layout: `magic (4) || expected_crc (2 LE)`. Returns the CRC if the
+/// magic matches.
+///
+/// # Errors
+/// - [`PayloadError::WrongLen`] if the payload is not exactly 6 bytes.
+/// - [`PayloadError::MagicMismatch`] if the first 4 bytes are not
+///   `LOCK_CONFIG_MAGIC`.
+pub fn parse_lock_config_zone(payload: &[u8]) -> Result<u16, PayloadError>
+{
+    require_len(payload, 4 + 2)?;
+    if payload[0..4] != LOCK_CONFIG_MAGIC
+    {
+        return Err(PayloadError::MagicMismatch);
+    }
+    Ok(u16::from_le_bytes([payload[4], payload[5]]))
+}
+
+/// Parse the payload of [`CommandOpcode::LockDataZone`].
+///
+/// Layout: `magic (4) || expected_crc (2 LE)`.
+///
+/// # Errors
+/// As for [`parse_lock_config_zone`] with `LOCK_DATA_MAGIC`.
+pub fn parse_lock_data_zone(payload: &[u8]) -> Result<u16, PayloadError>
+{
+    require_len(payload, 4 + 2)?;
+    if payload[0..4] != LOCK_DATA_MAGIC
+    {
+        return Err(PayloadError::MagicMismatch);
+    }
+    Ok(u16::from_le_bytes([payload[4], payload[5]]))
+}
+
+/// Parse the payload of [`CommandOpcode::LockSlot`].
+///
+/// Layout: `magic (4) || slot (1)`.
+///
+/// # Errors
+/// - [`PayloadError::WrongLen`] if the payload is not exactly 5 bytes.
+/// - [`PayloadError::MagicMismatch`] if the first 4 bytes are not
+///   `LOCK_SLOT_MAGIC`.
+pub fn parse_lock_slot(payload: &[u8]) -> Result<u8, PayloadError>
+{
+    require_len(payload, 4 + 1)?;
+    if payload[0..4] != LOCK_SLOT_MAGIC
+    {
+        return Err(PayloadError::MagicMismatch);
+    }
+    Ok(payload[4])
 }
 
 /// Parse the payload of [`CommandOpcode::WriteConfigZone`].
@@ -315,14 +456,28 @@ pub fn parse_factory_reset(
 ///
 /// # Errors
 /// See [`PayloadError`].
-pub fn parse_write_config_zone(
-    payload: &[u8],
-) -> Result<(u8, [u8; 32]), PayloadError>
+pub fn parse_write_config_zone(payload: &[u8]) 
+-> Result<(u8, [u8; 32]), PayloadError>
 {
     require_len(payload, 1 + 32)?;
     let mut block = [0u8; 32];
-    block.copy_from_slice(&payload[1..1 + 32]);
+    block.copy_from_slice(&payload[1..=32]);
     Ok((payload[0], block))
+}
+
+/// Parse the payload of [`CommandOpcode::ProvisionSlot`].
+///
+/// Layout: `slot (1) || value (32)`. Returns the pair.
+///
+/// # Errors
+/// - [`PayloadError::WrongLen`] if the payload is not exactly 33 bytes.
+pub fn parse_provision_slot(payload: &[u8]) 
+-> Result<(u8, [u8; 32]), PayloadError>
+{
+    require_len(payload, 1 + 32)?;
+    let mut value = [0u8; 32];
+    value.copy_from_slice(&payload[1..=32]);
+    Ok((payload[0], value))
 }
 
 fn require_len(payload: &[u8], expected: usize) -> Result<(), PayloadError>
@@ -361,8 +516,12 @@ mod tests
             CommandOpcode::UnblockPin,
             CommandOpcode::GetPinStatus,
             CommandOpcode::SetPuk,
-            CommandOpcode::FactoryReset,
+            CommandOpcode::EmergencyReset,
             CommandOpcode::WriteConfigZone,
+            CommandOpcode::ProvisionSlot,
+            CommandOpcode::ProvisionInitialPin,
+            CommandOpcode::ProvisionInitialPuk,
+            CommandOpcode::ProvisionIoKey,
             CommandOpcode::LockConfigZone,
             CommandOpcode::LockDataZone,
             CommandOpcode::LockSlot,
@@ -398,18 +557,13 @@ mod tests
     #[test]
     fn parse_sign_extracts_slot_and_digest()
     {
+        let expected_digest: [u8; DIGEST_LEN] = core::array::from_fn(|i| u8::try_from(i).unwrap());
         let mut payload = [0u8; 1 + DIGEST_LEN];
         payload[0] = 7;
-        for i in 0..DIGEST_LEN
-        {
-            payload[1 + i] = i as u8;
-        }
+        payload[1..].copy_from_slice(&expected_digest);
         let (slot, digest) = parse_sign(&payload).unwrap();
         assert_eq!(slot, 7);
-        for i in 0..DIGEST_LEN
-        {
-            assert_eq!(digest[i], i as u8);
-        }
+        assert_eq!(digest, expected_digest);
     }
 
     #[test]
@@ -432,16 +586,16 @@ mod tests
         let mut payload = [0u8; PIN_LEN * 2 + 32];
         payload[..4].copy_from_slice(b"0000");
         payload[4..8].copy_from_slice(b"1234");
-        for i in 0..32
+        for i in 0u8..32
         {
-            payload[8 + i] = 0xA0 + i as u8;
+            payload[8 + usize::from(i)] = 0xA0 + i;
         }
         let (old, new, io_key) = parse_set_pin(&payload).unwrap();
         assert_eq!(&old, b"0000");
         assert_eq!(&new, b"1234");
-        for i in 0..32
+        for i in 0u8..32
         {
-            assert_eq!(io_key[i], 0xA0 + i as u8);
+            assert_eq!(io_key[usize::from(i)], 0xA0 + i); 
         }
     }
 
@@ -458,16 +612,16 @@ mod tests
         let mut payload = [0u8; PUK_LEN + PIN_LEN + 32];
         payload[..8].copy_from_slice(b"01234567");
         payload[8..12].copy_from_slice(b"1234");
-        for i in 0..32
+        for i in 0u8..32
         {
-            payload[12 + i] = 0xB0 + i as u8;
+            payload[12 + usize::from(i)] = 0xB0 + i;
         }
         let (puk, new, io_key) = parse_unblock_pin(&payload).unwrap();
         assert_eq!(&puk, b"01234567");
         assert_eq!(&new, b"1234");
-        for i in 0..32
+        for i in 0u8..32
         {
-            assert_eq!(io_key[i], 0xB0 + i as u8);
+            assert_eq!(io_key[usize::from(i)], 0xB0 + i);
         }
     }
 
@@ -484,16 +638,16 @@ mod tests
         let mut payload = [0u8; PUK_LEN * 2 + 32];
         payload[..8].copy_from_slice(b"00000000");
         payload[8..16].copy_from_slice(b"99999999");
-        for i in 0..32
+        for i in 0u8..32
         {
-            payload[16 + i] = 0xC0 + i as u8;
+            payload[16 + usize::from(i)] = 0xC0 + i;
         }
         let (old, new, io_key) = parse_set_puk(&payload).unwrap();
         assert_eq!(&old, b"00000000");
         assert_eq!(&new, b"99999999");
-        for i in 0..32
+        for i in 0u8..32
         {
-            assert_eq!(io_key[i], 0xC0 + i as u8);
+            assert_eq!(io_key[usize::from(i)], 0xC0 + i);
         }
     }
 
@@ -505,27 +659,35 @@ mod tests
     }
 
     #[test]
-    fn parse_factory_reset_extracts_pin_and_io_key()
+    fn parse_emergency_reset_accepts_valid_magic_and_extracts_io_key()
     {
-        let mut payload = [0u8; PIN_LEN + 32];
-        payload[..4].copy_from_slice(b"1234");
-        for i in 0..32
+        let mut payload = [0u8; 4 + 32];
+        payload[..4].copy_from_slice(&EMERGENCY_RESET_MAGIC);
+        for i in 0u8..32
         {
-            payload[4 + i] = 0xD0 + i as u8;
+            payload[4 + usize::from(i)] = 0xE0u8.wrapping_add(i);
         }
-        let (pin, io_key) = parse_factory_reset(&payload).unwrap();
-        assert_eq!(&pin, b"1234");
-        for i in 0..32
+        let io_key = parse_emergency_reset(&payload).unwrap();
+        for i in 0u8..32
         {
-            assert_eq!(io_key[i], 0xD0 + i as u8);
+            assert_eq!(io_key[usize::from(i)], 0xE0u8.wrapping_add(i));
         }
     }
 
     #[test]
-    fn parse_factory_reset_rejects_short_payload()
+    fn parse_emergency_reset_rejects_wrong_magic()
     {
-        let err = parse_factory_reset(b"1234").unwrap_err();
-        assert_eq!(err, PayloadError::WrongLen { expected: 36, actual: 4 });
+        let mut payload = [0u8; 4 + 32];
+        payload[..4].copy_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        let err = parse_emergency_reset(&payload).unwrap_err();
+        assert_eq!(err, PayloadError::MagicMismatch);
+    }
+
+    #[test]
+    fn parse_emergency_reset_rejects_short_payload()
+    {
+        let err = parse_emergency_reset(&[0u8; 8]).unwrap_err();
+        assert_eq!(err, PayloadError::WrongLen { expected: 36, actual: 8 });
     }
 
     #[test]
@@ -533,15 +695,15 @@ mod tests
     {
         let mut payload = [0u8; 1 + 32];
         payload[0] = 2;
-        for i in 0..32
+        for i in 0u8..32
         {
-            payload[1 + i] = 0x10 + i as u8;
+            payload[1 + usize::from(i)] = 0x10 + i;
         }
         let (block, data) = parse_write_config_zone(&payload).unwrap();
         assert_eq!(block, 2);
-        for i in 0..32
+        for i in 0u8..32
         {
-            assert_eq!(data[i], 0x10 + i as u8);
+            assert_eq!(data[usize::from(i)], 0x10 + i);
         }
     }
 }

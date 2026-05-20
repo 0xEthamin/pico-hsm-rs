@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! `Read` and `Write` commands.
 //!
 //! These access the config, data, or OTP zones. They support 4-byte and
@@ -43,7 +58,7 @@
 //! bit  7     : 1 -> 32-byte transfer, 0 -> 4-byte transfer.
 //! ```
 //!
-//! Reference: CryptoAuthLib `lib/calib/calib_read.c` and
+//! Reference: `CryptoAuthLib` `lib/calib/calib_read.c` and
 //! `lib/calib/calib_write.c`, constants `ATCA_ZONE_CONFIG`, `ATCA_ZONE_OTP`,
 //! `ATCA_ZONE_DATA`, `ATCA_ZONE_READWRITE_32`, `ATCA_ZONE_ENCRYPTED`.
 
@@ -59,7 +74,7 @@ use crate::slot::Slot;
 pub enum Zone
 {
     /// 128-byte configuration zone. Contains slot policies, counters, lock
-    /// bytes, KeyConfig, and factory data (serial number, revision).
+    /// bytes, `KeyConfig`, and factory data (serial number, revision).
     Config,
     /// 64-byte one-time-programmable zone.
     Otp,
@@ -104,7 +119,7 @@ pub const ENCRYPTED_WRITE_DATA_SIZE: usize = BLOCK_SIZE + ENCRYPTED_WRITE_MAC_SI
 const PARAM1_FLAG_32_BYTES: u8 = 0x80;
 
 /// Flag OR'd into `param1` to indicate the data field is encrypted with
-/// TempKey and is followed by a MAC. Only valid for 32-byte Writes.
+/// `TempKey` and is followed by a MAC. Only valid for 32-byte Writes.
 const PARAM1_FLAG_ENCRYPTED: u8 = 0x40;
 
 /// Build the `param2` address for a config or OTP zone access.
@@ -346,7 +361,7 @@ where
     ///
     /// This entry point exists in the driver so that the encrypted-write
     /// path can be exercised against the mock HAL. It assumes the chip is
-    /// already loaded with a fresh `GenDig`-derived TempKey for the I/O
+    /// already loaded with a fresh `GenDig`-derived `TempKey` for the I/O
     /// protection slot. Calling this without that prior step yields a chip
     /// error.
     ///

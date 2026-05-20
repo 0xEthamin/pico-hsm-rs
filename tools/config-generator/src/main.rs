@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Generator for the ATECC608B configuration zone blob used by the
 //! mini-HSM.
 //!
@@ -56,7 +71,8 @@ fn main() -> Result<()>
 
     if crc != EXPECTED_CRC
     {
-        anyhow::bail!(
+        anyhow::bail!
+        (
             "internal error: generated blob CRC is 0x{crc:04X} but spec says 0x{EXPECTED_CRC:04X}. \
              The generator is out of sync with docs/config-zone-layout.md.",
         );

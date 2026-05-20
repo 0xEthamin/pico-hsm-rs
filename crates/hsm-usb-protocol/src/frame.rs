@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Byte-level encoding and decoding of HID frames.
 //!
 //! [`Frame`] is opcode-agnostic: it holds a `u8` opcode and a payload slice.
@@ -85,7 +100,8 @@ impl<'a> Frame<'a>
     /// [`HID_REPORT_SIZE`] bytes, or
     /// [`FrameBuildError::PayloadTooLarge`] if `payload.len()` exceeds
     /// [`MAX_PAYLOAD_SIZE`].
-    pub fn write(
+    pub fn write
+    (
         opcode: u8,
         payload: &[u8],
         out: &mut [u8],
@@ -109,10 +125,9 @@ impl<'a> Frame<'a>
         }
 
         out[0] = opcode;
-        // The length fits in u16: payload.len() <= MAX_PAYLOAD_SIZE < 256.
-        // Cast is safe by the bounds check above.
-        #[allow(clippy::cast_possible_truncation)]
-        let len = payload.len() as u16;
+        // The length should fits in u16: payload.len() <= MAX_PAYLOAD_SIZE < 256.
+        let len = u16::try_from(payload.len())
+            .map_err(|_| FrameBuildError::PayloadTooLarge {len: payload.len()})?;
         let [lo, hi] = len.to_le_bytes();
         out[1] = lo;
         out[2] = hi;
@@ -229,8 +244,10 @@ mod tests
     {
         let mut report = [0u8; HID_REPORT_SIZE];
         report[0] = 0x42;
-        // Claim a payload of MAX_PAYLOAD_SIZE + 1 bytes.
-        let oversized = (MAX_PAYLOAD_SIZE + 1) as u16;
+        // Claim a payload of MAX_PAYLOAD_SIZE + 1 bytes. The value fits in u16
+        // by construction (MAX_PAYLOAD_SIZE < 256), so the try_from is infallible
+        // and we unwrap in the test.
+        let oversized = u16::try_from(MAX_PAYLOAD_SIZE + 1).unwrap();
         let [lo, hi] = oversized.to_le_bytes();
         report[1] = lo;
         report[2] = hi;
@@ -263,7 +280,7 @@ mod tests
     #[test]
     fn len_uses_little_endian_encoding()
     {
-        // Encode a payload of 256 bytes worth -- if MAX_PAYLOAD_SIZE were
+        // Encode a payload of 256 bytes worth. If MAX_PAYLOAD_SIZE were
         // larger it would fit, but here we just verify the byte order in
         // the header. We can't actually create such a payload, so we go
         // the other way: hand-craft a report with len = 0x0102 (258) which

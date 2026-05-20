@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! State machine task.
 //!
 //! Owns the single instance of [`TokenState`] and applies transitions in
@@ -142,7 +157,7 @@ fn derive_timer_event(
         }
     }
     // Should not happen: the select's timer branch fired but no deadline
-    // matched. Most likely a logic bug; fall back to a no-op event.
+    // matched. Most likely a logic bug. Fall back to a no-op event.
     defmt::warn!("timer fired but no deadline matched");
     Event::SessionEnded
 }
@@ -165,7 +180,8 @@ fn update_timers(
 )
 {
     // Session timer: any of the three "user is active" states.
-    let user_active_state = matches!(
+    let user_active_state = matches!
+    (
         state,
         TokenState::Authenticated | TokenState::WaitingForTouch | TokenState::Signing
     );
@@ -173,7 +189,8 @@ fn update_timers(
     if user_active_state
     {
         // Refresh on activity events.
-        let refresh = matches!(
+        let refresh = matches!
+        (
             last_event,
             Event::PinVerified | Event::SignComplete | Event::SignRequested | Event::TouchPressed
         );

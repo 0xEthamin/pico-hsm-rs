@@ -80,6 +80,14 @@ the dongle can be used, an operator must:
 See [`docs/bring-up-procedure.md`](docs/bring-up-procedure.md) for the
 full step-by-step walk-through.
 
-## Licence
+## License
 
-To be decided. The repository is currently unlicensed.
+This entire workspace (including the firmware, the host tools, and the ATECC608B driver) is open-source and licensed under the **GNU General Public License v3.0 or later** ([GPL-3.0-or-later](LICENSE)). 
+
+This strong copyleft license ensures that any modifications, improvements, or products built upon this project remain open-source and freely available to the community.
+
+### Commercial Licensing
+
+If you wish to integrate this project—whether it's the HSM firmware logic, the architecture, or the driver—into a proprietary, closed-source commercial product (and therefore cannot comply with the GPLv3 requirement to open-source your entire product), please contact me to discuss a **Commercial License**. 
+
+Contact: `perso@simontuloup.fr`

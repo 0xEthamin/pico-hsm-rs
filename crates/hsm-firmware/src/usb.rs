@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! USB-HID device stack.
 //!
 //! Initialises an embassy-usb device that exposes one vendor-defined HID
@@ -96,7 +111,8 @@ impl Default for UsbBuffers
 ///
 /// Returns the device (whose `run` future must be polled forever by a task)
 /// and the split HID reader/writer.
-pub fn build_usb<'d>(
+pub fn build_usb<'d>
+(
     usb: Peri<'d, USB>,
     buffers: &'d mut UsbBuffers,
     hid_state: &'d mut State<'d>,
@@ -105,7 +121,7 @@ pub fn build_usb<'d>(
     let driver = Driver::new(usb, Irqs);
 
     let mut config = Config::new(USB_VID, USB_PID);
-    config.manufacturer  = Some("Garage ISEP");
+    config.manufacturer  = Some("Ethamin");
     config.product       = Some("mini-HSM");
     config.serial_number = Some("0001");
     config.max_power     = 100;
@@ -113,7 +129,8 @@ pub fn build_usb<'d>(
     // as two 64-byte transactions automatically by the stack.
     config.max_packet_size_0 = 64;
 
-    let mut builder = Builder::new(
+    let mut builder = Builder::new
+    (
         driver,
         config,
         &mut buffers.config_descriptor,
@@ -132,7 +149,8 @@ pub fn build_usb<'d>(
         hid_boot_protocol: HidBootProtocol::None,
     };
 
-    let hid = HidReaderWriter::<_, REPORT_SIZE, REPORT_SIZE>::new(
+    let hid = HidReaderWriter::<_, REPORT_SIZE, REPORT_SIZE>::new
+    (
         &mut builder,
         hid_state,
         hid_config,

@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Encoding and decoding of ATECC608B command and response frames.
 //!
 //! # Command frame layout (sent host to chip)
@@ -127,11 +142,16 @@ pub fn build_command_frame(
 
     // The count byte counts itself and everything that follows including the
     // CRC. total_len already accounts for all of that.
-    out[0] = total_len as u8;
+    out[0] = u8::try_from(total_len).map_err(|_| PacketBuildError::DataTooLong 
+    {
+        attempted: data.len(),
+        max:       MAX_COMMAND_DATA_LEN,
+    })?;
     out[1] = opcode;
     out[2] = param1;
-    out[3] = (param2 & 0xFF) as u8;
-    out[4] = ((param2 >> 8) & 0xFF) as u8;
+    let param2_bytes = param2.to_le_bytes();
+    out[3] = param2_bytes[0];
+    out[4] = param2_bytes[1];
 
     out[5..5 + data.len()].copy_from_slice(data);
 

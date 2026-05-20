@@ -1,8 +1,10 @@
 [package]
 name        = "hsm-firmware"
-version     = "0.1.0"
-edition     = "2024"
 description = "Firmware binary for the mini-HSM dongle (RP2040)."
+version     = { workspace = true }
+edition     = { workspace = true }
+authors     = { workspace = true }
+license     = { workspace = true }
 
 [[bin]]
 name = "hsm-firmware"

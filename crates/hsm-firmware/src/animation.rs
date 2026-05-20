@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! LED animation task.
 //!
 //! Reads the current [`TokenState`] off [`crate::channels::TOKEN_STATE`] and
@@ -42,7 +57,8 @@ const ALTERNATE_INTERVAL: Duration = Duration::from_millis(100);
 ///
 /// Both LEDs are owned by this task for the lifetime of the firmware.
 #[embassy_executor::task]
-pub async fn animation_task(
+pub async fn animation_task
+(
     mut led_green: Output<'static>,
     mut led_yellow: Output<'static>,
 ) -> !
@@ -58,7 +74,8 @@ pub async fn animation_task(
     loop
     {
         // Apply the current pattern.
-        let interval = apply_pattern(
+        let interval = apply_pattern
+        (
             state.led_pattern(),
             tick_high,
             &mut led_green,
@@ -90,7 +107,8 @@ pub async fn animation_task(
 ///
 /// `tick_high` alternates `false`/`true` each iteration. For static
 /// patterns (solid, all-off) the value is ignored.
-fn apply_pattern(
+fn apply_pattern
+(
     pattern: LedPattern,
     tick_high: bool,
     led_green: &mut Output<'static>,

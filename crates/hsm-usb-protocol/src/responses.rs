@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Status bytes returned by the token in every response report.
 //!
 //! Wire format mirrors [`crate::commands`]: a single 64-byte HID report
@@ -45,6 +60,10 @@ pub enum ResponseStatus
     WrongPuk                 = 0x0E,
     /// `0x0F` - PUK retries exhausted. Chip is bricked.
     Bricked                  = 0x0F,
+    /// `0x10` - `EmergencyReset` was requested but the user still has
+    /// PIN or PUK attempts remaining. Payload is 2 bytes:
+    /// `[pin_tries_remaining, puk_tries_remaining]`.
+    EmergencyResetNotPermitted = 0x10,
 }
 
 impl ResponseStatus
@@ -71,6 +90,7 @@ impl ResponseStatus
             0x0D => Some(Self::PinBlocked),
             0x0E => Some(Self::WrongPuk),
             0x0F => Some(Self::Bricked),
+            0x10 => Some(Self::EmergencyResetNotPermitted),
             _    => None,
         }
     }
@@ -127,6 +147,7 @@ mod tests
             ResponseStatus::PinBlocked,
             ResponseStatus::WrongPuk,
             ResponseStatus::Bricked,
+            ResponseStatus::EmergencyResetNotPermitted,
         ]
         {
             assert_eq!(ResponseStatus::from_byte(status.as_u8()), Some(status));
@@ -143,7 +164,9 @@ mod tests
     #[test]
     fn from_byte_returns_none_for_unknown()
     {
-        assert!(ResponseStatus::from_byte(0x10).is_none());
+        assert!(ResponseStatus::from_byte(0x11).is_none());
+        assert!(ResponseStatus::from_byte(0x42).is_none());
+        assert!(ResponseStatus::from_byte(0x99).is_none());
         assert!(ResponseStatus::from_byte(0xFF).is_none());
     }
 }

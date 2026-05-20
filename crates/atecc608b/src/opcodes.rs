@@ -1,10 +1,25 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Numeric constants of the ATECC608B protocol.
 //!
 //! Every byte value, command opcode, max execution time, polling parameter,
 //! and packet size lives here. The rest of the driver imports symbols by name
 //! and **never** uses magic numbers.
 //!
-//! Source of truth: Microchip CryptoAuthLib (`lib/calib/calib_command.h` and
+//! Source of truth: Microchip `CryptoAuthLib` (`lib/calib/calib_command.h` and
 //! `lib/calib/calib_execution.c`). Cross-references to the public summary
 //! datasheet (DS40002239A) are included in comments where they exist.
 
@@ -21,7 +36,7 @@ pub const I2C_ADDRESS: u8 = 0x60;
 pub const WORD_ADDRESS_RESET: u8 = 0x00;
 /// Word address that puts the chip in low-power sleep.
 pub const WORD_ADDRESS_SLEEP: u8 = 0x01;
-/// Word address that puts the chip in idle (keeps TempKey, drops the watchdog).
+/// Word address that puts the chip in idle (keeps `TempKey`, drops the watchdog).
 pub const WORD_ADDRESS_IDLE: u8 = 0x02;
 /// Word address sent before every command packet.
 pub const WORD_ADDRESS_COMMAND: u8 = 0x03;
@@ -38,7 +53,7 @@ pub const WAKE_LOW_DURATION_US: u32 = 60;
 /// - `tHTSU`: 4100 us maximum, the host-to-target setup time before the
 ///   chip will ACK its address.
 ///
-/// CryptoAuthLib historically uses 1500 us and it works on most chip
+/// `CryptoAuthLib` historically uses 1500 us and it works on most chip
 /// revisions, but some 608B silicon needs the full `tHTSU` window. We
 /// pick 4500 us as a single delay that covers both with margin. The
 /// extra ~3 ms over the strict `tWHI` is invisible to the user (PIN
@@ -53,9 +68,6 @@ pub const WAKE_RESPONSE_OK: [u8; 4] = [0x04, 0x11, 0x33, 0x43];
 pub const WAKE_RESPONSE_SELFTEST_FAIL: [u8; 4] = [0x04, 0x07, 0xC4, 0x40];
 
 // Polling parameters
-
-/// Time the driver waits between the command send and the first response read.
-pub const POLLING_INIT_MS: u32 = 1;
 
 /// Time the driver waits between two consecutive response reads.
 pub const POLLING_PERIOD_MS: u32 = 2;
@@ -89,7 +101,7 @@ pub const MAX_COMMAND_DATA_LEN: usize = MAX_PACKET_SIZE - 1 - COMMAND_FRAME_OVER
 // Command opcodes
 // Source: `lib/calib/calib_command.h` of CryptoAuthLib.
 
-/// `Info`     - retrieve revision / status / KeyValid.
+/// `Info`     - retrieve revision / status / `KeyValid`.
 pub const OP_INFO: u8 = 0x30;
 /// `Random`   - produce 32 cryptographically random bytes.
 pub const OP_RANDOM: u8 = 0x1B;
@@ -99,7 +111,7 @@ pub const OP_READ: u8 = 0x02;
 pub const OP_WRITE: u8 = 0x12;
 /// `Lock`     - irreversibly lock a zone or a slot.
 pub const OP_LOCK: u8 = 0x17;
-/// `Nonce`    - load TempKey or `MsgDigBuf` for subsequent commands.
+/// `Nonce`    - load `TempKey` or `MsgDigBuf` for subsequent commands.
 pub const OP_NONCE: u8 = 0x16;
 /// `GenKey`   - generate a P-256 key pair in a slot, or compute a public key.
 pub const OP_GENKEY: u8 = 0x40;
@@ -113,7 +125,7 @@ pub const OP_PRIVWRITE: u8 = 0x46;
 pub const OP_COUNTER: u8 = 0x24;
 /// `CheckMac` - verify a precomputed MAC against a stored secret.
 pub const OP_CHECKMAC: u8 = 0x28;
-/// `GenDig`   - derive a digest into TempKey for use with `Write` encrypted.
+/// `GenDig`   - derive a digest into `TempKey` for use with `Write` encrypted.
 pub const OP_GENDIG: u8 = 0x15;
 
 // Expected execution time per command, in milliseconds

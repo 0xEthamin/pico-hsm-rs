@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! `Counter` command.
 //!
 //! Reads or increments one of the chip's two 21-bit monotonic counters
@@ -6,13 +21,13 @@
 //!
 //! In this project's slot model:
 //!
-//! - Counter0 backs Slot 5 (PIN hash). It is bumped by 1 on every CheckMac
+//! - Counter0 backs Slot 5 (PIN hash). It is bumped by 1 on every `CheckMac`
 //!   against slot 5, with the convention that the driver rounds the counter
 //!   up to the next multiple of 5 on successful verification so the user
 //!   always gets a fresh batch of 5 attempts.
 //! - Counter1 backs Slot 6 (PUK hash). Same mechanism with batches of 10.
 //!
-//! Reference: CryptoAuthLib `lib/calib/calib_counter.c`, constants
+//! Reference: `CryptoAuthLib` `lib/calib/calib_counter.c`, constants
 //! `COUNTER_MODE_READ` (0x00), `COUNTER_MODE_INCREMENT` (0x01).
 
 use crate::driver::Atecc;

@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! ATECC HAL implementation for the RP2040.
 //!
 //! Backs the [`atecc608b::AteccHal`] trait by `embassy_rp::i2c` for normal
@@ -88,7 +103,8 @@ impl Rp2040Hal
     /// The caller passes `peripherals.I2C0`, `peripherals.PIN_5` (SCL),
     /// and `peripherals.PIN_4` (SDA).
     #[must_use]
-    pub fn new(
+    pub fn new
+    (
         i2c_peri: Peri<'static, I2C0>,
         scl: Peri<'static, PIN_5>,
         sda: Peri<'static, PIN_4>,
@@ -104,7 +120,8 @@ impl Rp2040Hal
     {
         let mut config = I2cConfig::default();
         config.frequency = I2C_FREQ_HZ;
-        I2c::new_async(
+        I2c::new_async
+        (
             self.i2c_peri.reborrow(),
             self.scl.reborrow(),
             self.sda.reborrow(),

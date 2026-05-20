@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Error types for the ATECC608B driver.
 //!
 //! Each layer maps its specific failure modes to a variant of [`AteccError`].
@@ -54,13 +69,13 @@ where
 
 /// Errors reported by the chip itself via a 4-byte response frame.
 ///
-/// Status byte values are taken from the Microchip CryptoAuthLib
+/// Status byte values are taken from the Microchip `CryptoAuthLib`
 /// `isATCAError()` function.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChipError
 {
-    /// `0x01` - CheckMac or Verify failed.
+    /// `0x01` - `CheckMac` or Verify failed.
     CheckMacOrVerifyFailed,
 
     /// `0x03` - Command byte length, opcode or parameter was illegal.

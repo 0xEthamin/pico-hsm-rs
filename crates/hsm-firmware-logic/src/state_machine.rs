@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Token operating state machine.
 //!
 //! The token transitions between a small set of named states based on
@@ -6,7 +21,7 @@
 //! associated LED pattern that drives the visual indicator at the right
 //! cadence.
 //!
-//! The state machine is pure logic: it consumes events and returns the
+//! The state machine is pure logic. It consumes events and returns the
 //! new state plus the new LED pattern. It does not perform I/O. The
 //! firmware's main task drives the I/O around it (sampling the button,
 //! toggling the LEDs, waking on timeouts). This separation makes the
@@ -40,6 +55,13 @@ pub const ERROR_DISPLAY_MS: u64 = 5_000;
 /// How long the user has to touch the button before the signing request
 /// is cancelled.
 pub const TOUCH_TIMEOUT_MS: u64 = 30_000;
+
+// Compile-time invariant: the error display window must be shorter than
+// the touch window, otherwise an error raised during signing could hide
+// the pending signature for longer than the touch deadline. Catching
+// this at compile time means a misedit of the constants above is
+// rejected by `cargo check`, before any test ever runs.
+const _: () = assert!(ERROR_DISPLAY_MS < TOUCH_TIMEOUT_MS);
 
 /// Events that drive transitions.
 ///
@@ -124,7 +146,7 @@ impl TokenState
     /// Apply an event and return the next state.
     ///
     /// Events that do not match any transition for the current state are
-    /// ignored: the function returns the state unchanged. This is the
+    /// ignored. The function returns the state unchanged. This is the
     /// conservative behaviour, equivalent to a `default: do nothing` arm.
     /// The dispatch loop is free to fire `SessionEnded` repeatedly without
     /// risking pathological transitions for example.
@@ -135,39 +157,28 @@ impl TokenState
         use TokenState as S;
         match (self, event)
         {
-            // Boot complete -> Idle.
-            (S::Booting, E::BootComplete) => S::Idle,
+            // Transitions to Idle: boot completion, session timeout (from either
+            // authenticated or waiting-for-touch), and the end of the error
+            // display window.
+            (S::Booting,           E::BootComplete)
+            | (S::Authenticated | S::WaitingForTouch, E::SessionEnded)
+            | (S::Error,           E::ErrorDisplayElapsed) => S::Idle,
 
-            // PIN verified opens an authenticated session.
-            (S::Idle,          E::PinVerified) => S::Authenticated,
-            (S::Authenticated, E::PinVerified) => S::Authenticated,
+            // Transitions to Authenticated: PIN verify (Idle or refresh existing),
+            // touch timeout cancelling a pending sign without dropping session,
+            // and a completed signing.
+            (S::Idle | S::Authenticated, E::PinVerified)
+            | (S::WaitingForTouch, E::TouchTimeout)
+            | (S::Signing,         E::SignComplete) => S::Authenticated,
 
-            // Session timing out drops back to idle.
-            (S::Authenticated,   E::SessionEnded) => S::Idle,
-            (S::WaitingForTouch, E::SessionEnded) => S::Idle,
-
-            // Sign requires authentication; from Authenticated we move to
-            // WaitingForTouch. From any other state we ignore the request
-            // (the dispatch loop would have refused it already).
+            // Sign requires authentication.
             (S::Authenticated, E::SignRequested) => S::WaitingForTouch,
 
             // Touch confirms the pending signature.
             (S::WaitingForTouch, E::TouchPressed) => S::Signing,
 
-            // Touch timeout cancels the pending signature and returns to
-            // Authenticated (the user may try again without re-typing the
-            // PIN).
-            (S::WaitingForTouch, E::TouchTimeout) => S::Authenticated,
-
-            // Signing complete -> back to Authenticated (PIN session is
-            // still valid for the rest of its window).
-            (S::Signing, E::SignComplete) => S::Authenticated,
-
             // Errors override any state.
             (_, E::ErrorRaised) => S::Error,
-
-            // Once the error display window is over, return to idle.
-            (S::Error, E::ErrorDisplayElapsed) => S::Idle,
 
             // Anything else is a no-op.
             _ => self,
@@ -180,8 +191,6 @@ mod tests
 {
     use super::*;
 
-    // ----- LED patterns ----------------------------------------------------
-
     #[test]
     fn led_pattern_per_state()
     {
@@ -192,8 +201,6 @@ mod tests
         assert_eq!(TokenState::Signing.led_pattern(), LedPattern::AlternateBoth);
         assert_eq!(TokenState::Error.led_pattern(), LedPattern::GreenFastBlink);
     }
-
-    // ----- Happy path: full sign flow --------------------------------------
 
     #[test]
     fn happy_path_boot_to_signed()
@@ -217,8 +224,6 @@ mod tests
         assert_eq!(s, TokenState::Authenticated);
     }
 
-    // ----- Touch timeout cancels the signing request -----------------------
-
     #[test]
     fn touch_timeout_returns_to_authenticated()
     {
@@ -227,8 +232,6 @@ mod tests
             .on_event(Event::TouchTimeout);
         assert_eq!(s, TokenState::Authenticated);
     }
-
-    // ----- Session expiry --------------------------------------------------
 
     #[test]
     fn session_expiry_returns_to_idle_from_authenticated()
@@ -243,8 +246,6 @@ mod tests
         let s = TokenState::WaitingForTouch.on_event(Event::SessionEnded);
         assert_eq!(s, TokenState::Idle);
     }
-
-    // ----- Sign request only valid from Authenticated ----------------------
 
     #[test]
     fn sign_request_ignored_outside_authenticated()
@@ -262,8 +263,6 @@ mod tests
         }
     }
 
-    // ----- Touch press only valid in WaitingForTouch -----------------------
-
     #[test]
     fn touch_press_ignored_outside_waiting()
     {
@@ -279,8 +278,6 @@ mod tests
                 "touch press from {s:?} should be a no-op");
         }
     }
-
-    // ----- Error from any state -------------------------------------------
 
     #[test]
     fn error_event_overrides_any_state()
@@ -322,8 +319,6 @@ mod tests
         }
     }
 
-    // ----- Idempotence: repeated events do not break the state ------------
-
     #[test]
     fn repeated_pin_verified_stays_authenticated()
     {
@@ -343,15 +338,10 @@ mod tests
         assert_eq!(s, TokenState::Idle);
     }
 
-    // ----- Constants are sane ---------------------------------------------
-
     #[test]
     fn timeout_constants_are_reasonable()
     {
         // Touch window matches the user-facing spec.
         assert_eq!(TOUCH_TIMEOUT_MS, 30_000);
-        // Error display is shorter than touch window, so it cannot
-        // accidentally hide a pending signature operation.
-        assert!(ERROR_DISPLAY_MS < TOUCH_TIMEOUT_MS);
     }
 }

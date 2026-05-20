@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! `Sign` command.
 //!
 //! Produces an ECDSA P-256 signature using a private key stored in a slot.
@@ -9,7 +24,7 @@
 //! signs a digest it computed itself in a previous operation) is not used
 //! in this project's workflow and is therefore not exposed.
 //!
-//! Reference: CryptoAuthLib `lib/calib/calib_sign.c`, constants
+//! Reference: `CryptoAuthLib` `lib/calib/calib_sign.c`, constants
 //! `SIGN_MODE_EXTERNAL` (0x80), `SIGN_MODE_INTERNAL` (0x00).
 //!
 //! # Signature format

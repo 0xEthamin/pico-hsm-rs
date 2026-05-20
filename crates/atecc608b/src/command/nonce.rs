@@ -1,13 +1,28 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! `Nonce` command.
 //!
-//! Loads bytes into the chip's TempKey or MsgDigBuf register. The ATECC608B
+//! Loads bytes into the chip's `TempKey` or `MsgDigBuf` register. The ATECC608B
 //! supports several modes, of which two are useful from the host side:
 //!
 //! - **Random** (mode 0): the host sends 20 bytes of input (`NumIn`), the
 //!   chip mixes them with its TRNG output, hashes the result, and stores
 //!   the hash in `TempKey`. The chip returns the 32-byte TRNG value
 //!   (`NumOut`) that was mixed in, so the host can reconstruct `TempKey`
-//!   if needed (this is what CheckMac and GenDig depend on).
+//!   if needed (this is what `CheckMac` and `GenDig` depend on).
 //!
 //! - **Passthrough** (mode 3): the host sends 32 bytes that are stored
 //!   verbatim in `TempKey` or in `MsgDigBuf`. No mixing, no RNG. The chip
@@ -19,7 +34,7 @@
 //! They can be added later as additional methods rather than expanded as
 //! parameters on the existing ones, to keep each entry point unambiguous.
 //!
-//! Reference: CryptoAuthLib `lib/calib/calib_nonce.c`, constants
+//! Reference: `CryptoAuthLib` `lib/calib/calib_nonce.c`, constants
 //! `NONCE_MODE_SEED_UPDATE` (0x00), `NONCE_MODE_PASSTHROUGH` (0x03),
 //! `NONCE_MODE_TARGET_TEMPKEY` (0x00), `NONCE_MODE_TARGET_MSGDIGBUF` (0x40),
 //! `NONCE_NUMIN_SIZE` (20), `NONCE_NUMIN_SIZE_PASSTHROUGH` (32).
@@ -55,9 +70,9 @@ const NONCE_TARGET_MSGDIGBUF: u8 = 0x40;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NonceTarget
 {
-    /// 32-byte TempKey register. Used to load a digest before `Sign`.
+    /// 32-byte `TempKey` register. Used to load a digest before `Sign`.
     TempKey,
-    /// 32-byte MsgDigBuf register.
+    /// 32-byte `MsgDigBuf` register.
     MsgDigBuf,
 }
 
@@ -86,7 +101,7 @@ where
     /// On success returns the 32-byte `NumOut` (the TRNG portion mixed in).
     /// The host can compute the resulting `TempKey` value as
     /// `SHA256(NumOut || NumIn || OpCode || Mode || LSB || 0..0)` per the
-    /// CryptoAuthLib reference, but the driver does not do that derivation:
+    /// `CryptoAuthLib` reference, but the driver does not do that derivation:
     /// it is a service-layer concern.
     ///
     /// # Errors

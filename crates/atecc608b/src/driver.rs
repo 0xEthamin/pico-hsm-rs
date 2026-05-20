@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Top-level driver handle.
 //!
 //! [`Atecc`] owns the HAL and exposes the typed command API. High-level
@@ -145,7 +160,7 @@ where
     /// Execute one full command round-trip and return the data payload.
     ///
     /// Use this overload for commands that return data (Info, Random, Read,
-    /// GenKey, Sign, Verify, ECDH). The chip responds with `count >= 5` bytes
+    /// `GenKey`, Sign, Verify, ECDH). The chip responds with `count >= 5` bytes
     /// (count + payload + CRC).
     ///
     /// For commands that only signal success or failure via a 4-byte status
@@ -318,34 +333,27 @@ where
             // First read the count byte alone. This tells us how big the
             // rest of the frame is.
             let mut count = [0u8; 1];
-            match self.hal.i2c_read(self.device_addr, &mut count).await
-            {
-                Ok(()) =>
+            if let Ok(()) = self.hal.i2c_read(self.device_addr, &mut count).await {
+                let total = count[0] as usize;
+                if total < 4 || total > max_buf_len
                 {
-                    let total = count[0] as usize;
-                    if total < 4 || total > max_buf_len
-                    {
-                        return Err(AteccError::MalformedResponse);
-                    }
-
-                    response_buf[0] = count[0];
-                    self.hal
-                        .i2c_read(self.device_addr, &mut response_buf[1..total])
-                        .await?;
-
-                    return Ok(total);
+                    return Err(AteccError::MalformedResponse);
                 }
-                Err(_) =>
-                {
-                    // Treated as "chip still busy". Back off and retry.
-                    if elapsed_ms >= POLLING_MAX_MS
-                    {
-                        return Err(AteccError::Timeout);
-                    }
-                    self.hal.delay_ms(POLLING_PERIOD_MS).await;
-                    elapsed_ms = elapsed_ms.saturating_add(POLLING_PERIOD_MS);
-                }
+
+                response_buf[0] = count[0];
+                self.hal
+                    .i2c_read(self.device_addr, &mut response_buf[1..total])
+                    .await?;
+
+                return Ok(total);
             }
+            // Treated as "chip still busy". Back off and retry.
+            if elapsed_ms >= POLLING_MAX_MS
+            {
+                return Err(AteccError::Timeout);
+            }
+            self.hal.delay_ms(POLLING_PERIOD_MS).await;
+            elapsed_ms = elapsed_ms.saturating_add(POLLING_PERIOD_MS);
         }
     }
 }
@@ -354,8 +362,10 @@ fn map_build_error<E: core::fmt::Debug>(err: PacketBuildError) -> AteccError<E>
 {
     match err
     {
-        PacketBuildError::DataTooLong { .. } => AteccError::BufferTooSmall,
-        PacketBuildError::OutputBufferTooSmall { .. } => AteccError::BufferTooSmall,
+        PacketBuildError::DataTooLong { .. } | PacketBuildError::OutputBufferTooSmall { .. } =>
+        {
+            AteccError::BufferTooSmall
+        }
     }
 }
 
@@ -363,8 +373,10 @@ fn map_parse_error<E: core::fmt::Debug>(err: PacketParseError) -> AteccError<E>
 {
     match err
     {
-        PacketParseError::TooShort => AteccError::MalformedResponse,
-        PacketParseError::LengthMismatch { .. } => AteccError::MalformedResponse,
+        PacketParseError::TooShort | PacketParseError::LengthMismatch { .. } =>
+        {
+            AteccError::MalformedResponse
+        }
         PacketParseError::BadCrc => AteccError::BadCrc,
     }
 }

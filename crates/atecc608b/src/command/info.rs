@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! `Info` command.
 //!
 //! The `Info` command (opcode `0x30`) returns 4 bytes of status. Several
@@ -5,7 +20,7 @@
 //! returns the silicon revision code. For an ATECC608B in M0 clock divider
 //! mode this is `00 00 60 02`, and `00 00 60 03` for M1.
 //!
-//! Reference: CryptoAuthLib `lib/calib/calib_info.c`.
+//! Reference: `CryptoAuthLib` `lib/calib/calib_info.c`.
 
 use crate::driver::Atecc;
 use crate::error::AteccError;
@@ -14,7 +29,7 @@ use crate::opcodes::{EXEC_TIME_INFO_MS, OP_INFO};
 
 /// `Info` mode bytes (Param1).
 ///
-/// Source: CryptoAuthLib `lib/calib/calib_command.h`, `INFO_MODE_*` constants.
+/// Source: `CryptoAuthLib` `lib/calib/calib_command.h`, `INFO_MODE_*` constants.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum InfoMode

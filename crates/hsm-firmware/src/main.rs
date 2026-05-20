@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Mini-HSM firmware entry point.
 //!
 //! Boot sequence:
@@ -78,12 +93,12 @@ async fn main(spawner: Spawner)
     let peripherals = embassy_rp::init(Default::default());
 
     // GPIOs.
-    // GP15 - touch button. Active-low: switch to ground, internal pull-up
+    // GP15 : touch button. Active-low: switch to ground, internal pull-up
     // to 3V3. Reads low when pressed.
     let button = Input::new(peripherals.PIN_15, Pull::Up);
-    // GP16 - green status LED, active-high.
+    // GP16 : green status LED, active-high.
     let led_green = Output::new(peripherals.PIN_16, Level::Low);
-    // GP17 - yellow touch-awaiting LED, active-high.
+    // GP17 : yellow touch-awaiting LED, active-high.
     let led_yellow = Output::new(peripherals.PIN_17, Level::Low);
 
     info!("mini-hsm firmware booted");
@@ -98,7 +113,8 @@ async fn main(spawner: Spawner)
     // Build the ATECC handle on I2C0 (SCL=GP5, SDA=GP4 per the project
     // schematic). The Peri singletons are moved into the HAL, which
     // re-borrows them on every transaction or wake pulse.
-    let hal = hal_rp2040::Rp2040Hal::new(
+    let hal = hal_rp2040::Rp2040Hal::new
+    (
         peripherals.I2C0,
         peripherals.PIN_5,
         peripherals.PIN_4,
@@ -112,17 +128,21 @@ async fn main(spawner: Spawner)
     // returning `Result<SpawnToken, SpawnError>` which we expect here.
     // `SpawnError` only fires when the task pool is full, which cannot
     // happen at boot with the queue empty.
-    spawner.spawn(
+    spawner.spawn
+    (
         tasks::usb_run_task(usb_device).expect("failed to spawn USB run task"),
     );
-    spawner.spawn(
+    spawner.spawn
+    (
         state::state_task().expect("failed to spawn state machine task"),
     );
-    spawner.spawn(
+    spawner.spawn
+    (
         animation::animation_task(led_green, led_yellow)
             .expect("failed to spawn animation task"),
     );
-    spawner.spawn(
+    spawner.spawn
+    (
         touch::touch_task(button).expect("failed to spawn touch task"),
     );
 

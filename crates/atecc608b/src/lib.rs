@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! `no_std` asynchronous driver for the Microchip ATECC608B secure element.
 //!
 //! This crate is intentionally generic over a [`hal::AteccHal`] trait so it can
@@ -15,12 +30,12 @@
 //! - [`wake`]      - Wake / idle / sleep sequence and the response polling
 //!   loop.
 //! - [`command`]   - One module per high-level command (Info, Random, Sign,
-//!   GenKey, etc). Each one exposes a typed async function on the
+//!   `GenKey`, etc). Each one exposes a typed async function on the
 //!   [`driver::Atecc`] handle.
 //! - [`error`]     - Error types for each layer, with `From` conversions for
 //!   chaining.
 //! - [`opcodes`]   - Numeric constants extracted from the Microchip
-//!   CryptoAuthLib reference. Treat this as the single source of truth for
+//!   `CryptoAuthLib` reference. Treat this as the single source of truth for
 //!   on-the-wire values.
 //! - [`hal`]       - The [`hal::AteccHal`] trait every backend must implement.
 //! - [`slot`]      - Slot identifiers and helpers.

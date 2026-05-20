@@ -1,8 +1,10 @@
 [package]
 name        = "hsm-usb-protocol"
-version     = "0.1.0"
-edition     = "2024"
 description = "USB-HID protocol for the mini-HSM, shared by firmware and host."
+version     = { workspace = true }
+edition     = { workspace = true }
+authors     = { workspace = true }
+license     = { workspace = true }
 
 [features]
 default = []

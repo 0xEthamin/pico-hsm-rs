@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Construction of the 128-byte configuration zone blob.
 //!
 //! Every field, every bit, every value here matches
@@ -320,7 +335,8 @@ mod tests
         {
             let offset = 20 + 2 * (slot as usize);
             let actual_sc = u16::from(blob[offset]) | (u16::from(blob[offset + 1]) << 8);
-            assert_eq!(
+            assert_eq!
+            (
                 actual_sc, expected_sc,
                 "SlotConfig[{slot}] expected 0x{expected_sc:04X}, got 0x{actual_sc:04X}",
             );
@@ -345,7 +361,8 @@ mod tests
         {
             let offset = 96 + 2 * (slot as usize);
             let actual_kc = u16::from(blob[offset]) | (u16::from(blob[offset + 1]) << 8);
-            assert_eq!(
+            assert_eq!
+            (
                 actual_kc, expected_kc,
                 "KeyConfig[{slot}] expected 0x{expected_kc:04X}, got 0x{actual_kc:04X}",
             );

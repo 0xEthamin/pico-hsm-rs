@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! `PrivWrite` command.
 //!
 //! Writes a P-256 private key from the host into a slot.
@@ -25,7 +40,7 @@
 //!   [`crate::command::gendig::Atecc::gendig`] and the matching host-side
 //!   key derivation. It will be added when that orchestration lands.
 //!
-//! Reference: CryptoAuthLib `lib/calib/calib_priv_write.c`, constants
+//! Reference: `CryptoAuthLib` `lib/calib/calib_priv_write.c`, constants
 //! `PRIV_WRITE_MODE_ENCRYPT` (0x40).
 //!
 //! # Data layout
@@ -43,10 +58,10 @@ use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_PRIVWRITE_MS, OP_PRIVWRITE};
 use crate::slot::Slot;
 
-/// Cleartext PrivWrite payload size (4 padding + 32 scalar).
+/// Cleartext `PrivWrite` payload size (4 padding + 32 scalar).
 pub const PRIVWRITE_CLEARTEXT_SIZE: usize = 36;
 
-/// `param1` mode for cleartext PrivWrite (data zone unlocked only).
+/// `param1` mode for cleartext `PrivWrite` (data zone unlocked only).
 const PRIVWRITE_MODE_CLEARTEXT: u8 = 0x00;
 
 impl<H> Atecc<H>

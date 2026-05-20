@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! `CheckMac` command.
 //!
 //! Verifies a host-computed MAC against the contents of a slot. The chip
@@ -11,10 +26,10 @@
 //! the user typed, builds the corresponding MAC, and asks the chip to
 //! cross-check it. If the user has fat-fingered the PIN, the MAC does not
 //! match, the chip reports miscompare, and the relevant counter is bumped.
-//! That counter eventually reaches the LimitedUse threshold (5 for PIN,
-//! 10 for PUK) and blocks the slot from any further CheckMac.
+//! That counter eventually reaches the `LimitedUse` threshold (5 for PIN,
+//! 10 for PUK) and blocks the slot from any further `CheckMac`.
 //!
-//! Reference: CryptoAuthLib `lib/calib/calib_checkmac.c`, constants
+//! Reference: `CryptoAuthLib` `lib/calib/calib_checkmac.c`, constants
 //! `CHECKMAC_MODE_CHALLENGE` (0x00),
 //! `CHECKMAC_CHALLENGE_SIZE` (32),
 //! `CHECKMAC_CLIENT_RESPONSE_SIZE` (32),
@@ -36,7 +51,7 @@ pub const CHECKMAC_CLIENT_RESPONSE_SIZE: usize = 32;
 ///
 /// `other_data` mirrors the parameters the chip uses internally to compute
 /// the MAC against. It encodes the opcode, mode, key id, and OTP fields
-/// that participate in the hash. Layout per CryptoAuthLib:
+/// that participate in the hash. Layout per `CryptoAuthLib`:
 ///
 /// ```text
 /// [0]    : opcode (must match the CheckMac call, 0x28)
@@ -50,7 +65,7 @@ pub const CHECKMAC_CLIENT_RESPONSE_SIZE: usize = 32;
 /// For PIN verification with no OTP coupling, all 13 bytes can be zero.
 pub const CHECKMAC_OTHER_DATA_SIZE: usize = 13;
 
-/// Total size of the data field sent with a CheckMac command.
+/// Total size of the data field sent with a `CheckMac` command.
 pub const CHECKMAC_DATA_SIZE: usize =
     CHECKMAC_CHALLENGE_SIZE + CHECKMAC_CLIENT_RESPONSE_SIZE + CHECKMAC_OTHER_DATA_SIZE;
 
@@ -75,7 +90,7 @@ where
     /// # Counter side-effect
     ///
     /// If the target slot has a `LimitedUse` counter (slots 5 and 6 in this
-    /// project), each CheckMac call bumps the counter regardless of the
+    /// project), each `CheckMac` call bumps the counter regardless of the
     /// outcome. Reaching the threshold permanently blocks the slot.
     ///
     /// # Errors

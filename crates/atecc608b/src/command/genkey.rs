@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! `GenKey` command.
 //!
 //! Generates a P-256 ECC key pair inside a slot, or computes the public key
@@ -15,7 +30,7 @@
 //!   Read-only operation, useful at boot to retrieve the chip's identity
 //!   without re-generating the private key.
 //!
-//! Reference: CryptoAuthLib `lib/calib/calib_genkey.c`, constants
+//! Reference: `CryptoAuthLib` `lib/calib/calib_genkey.c`, constants
 //! `GENKEY_MODE_NEW_PRIVATE` (0x04), `GENKEY_MODE_PUBLIC` (0x00).
 //!
 //! # Public key format

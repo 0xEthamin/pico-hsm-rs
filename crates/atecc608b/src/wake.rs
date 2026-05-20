@@ -1,3 +1,18 @@
+// Copyright (c) 2026 Tuloup Simon
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Wake, idle, and sleep sequences for the ATECC608B.
 //!
 //! The chip spends most of its life in deep sleep (under 150 nA). To talk to
@@ -82,8 +97,8 @@ where
 
 /// Put the chip into idle.
 ///
-/// Idle preserves volatile state (TempKey, RNG seed) but resets the watchdog.
-/// Useful between two commands that share TempKey, like Nonce followed by
+/// Idle preserves volatile state (`TempKey`, RNG seed) but resets the watchdog.
+/// Useful between two commands that share `TempKey`, like Nonce followed by
 /// Sign.
 ///
 /// # Errors

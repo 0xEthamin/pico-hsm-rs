@@ -1,8 +1,10 @@
 [package]
 name        = "config-generator"
-version     = "0.1.0"
-edition     = "2024"
 description = "Emit the 128-byte ATECC608B config zone blob for the mini-HSM."
+version     = { workspace = true }
+edition     = { workspace = true }
+authors     = { workspace = true }
+license     = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
