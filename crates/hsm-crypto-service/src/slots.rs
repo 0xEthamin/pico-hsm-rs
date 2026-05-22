@@ -50,39 +50,39 @@
 use atecc608b::Slot;
 
 /// Primary identity slot. Used for the daily sign challenge / response.
-pub const SLOT_PRIMARY: Slot = Slot::const_new(0);
+pub(crate) const SLOT_PRIMARY: Slot = Slot::const_new(0);
 /// First reserve slot for key rotation.
-pub const SLOT_RESERVE_1: Slot = Slot::const_new(1);
+pub(crate) const SLOT_RESERVE_1: Slot = Slot::const_new(1);
 /// Second reserve slot.
-pub const SLOT_RESERVE_2: Slot = Slot::const_new(2);
+pub(crate) const SLOT_RESERVE_2: Slot = Slot::const_new(2);
 /// Third reserve slot.
-pub const SLOT_RESERVE_3: Slot = Slot::const_new(3);
+pub(crate) const SLOT_RESERVE_3: Slot = Slot::const_new(3);
 /// Fourth reserve slot.
-pub const SLOT_RESERVE_4: Slot = Slot::const_new(4);
+pub(crate) const SLOT_RESERVE_4: Slot = Slot::const_new(4);
 /// Slot holding the SHA-256 hash of the PIN.
-pub const SLOT_PIN_HASH: Slot = Slot::const_new(5);
+pub(crate) const SLOT_PIN_HASH: Slot = Slot::const_new(5);
 /// Slot holding the SHA-256 hash of the PUK.
-pub const SLOT_PUK_HASH: Slot = Slot::const_new(6);
+pub(crate) const SLOT_PUK_HASH: Slot = Slot::const_new(6);
 /// Slot holding the I/O protection master key.
-pub const SLOT_IO_KEY: Slot = Slot::const_new(8);
+pub(crate) const SLOT_IO_KEY: Slot = Slot::const_new(8);
 
 /// Size of one PIN batch on Counter0. The "effective tries" available
 /// to the user inside a batch is `PIN_MAX_RETRIES - 1` (= 4), because
 /// `refresh_counter_batch` lands `count` one past the next multiple so
 /// that `count % PIN_MAX_RETRIES == 0` is an unambiguous saturation
 /// signal usable by `emergency_reset`. See `service::retries_remaining`.
-pub const PIN_MAX_RETRIES: u8 = 5;
+pub(crate) const PIN_MAX_RETRIES: u8 = 5;
 
 /// Size of one PUK batch on Counter1. Effective tries inside a batch
 /// is `PUK_MAX_RETRIES - 1` (= 9), for the same reason as
 /// [`PIN_MAX_RETRIES`].
-pub const PUK_MAX_RETRIES: u8 = 10;
+pub(crate) const PUK_MAX_RETRIES: u8 = 10;
 
 /// PIN length in digits.
-pub const PIN_LENGTH: usize = 4;
+pub(crate) const PIN_LENGTH: usize = 4;
 
 /// PUK length in digits.
-pub const PUK_LENGTH: usize = 8;
+pub(crate) const PUK_LENGTH: usize = 8;
 
 /// Default PIN at factory provisioning. Must be changed on first use.
-pub const PIN_DEFAULT: [u8; PIN_LENGTH] = *b"0000";
+pub(crate) const PIN_DEFAULT: [u8; PIN_LENGTH] = *b"0000";

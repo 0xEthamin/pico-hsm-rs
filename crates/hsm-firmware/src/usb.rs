@@ -42,23 +42,23 @@ use embassy_usb::{Builder, Config, UsbDevice};
 
 use hsm_usb_protocol::{HID_REPORT_DESCRIPTOR, HID_REPORT_SIZE, USB_PID, USB_VID};
 
-bind_interrupts!(pub struct Irqs
+bind_interrupts!(pub(crate) struct Irqs
 {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
 
 /// Size of the HID report in bytes (matches `HID_REPORT_SIZE`).
-pub const REPORT_SIZE: usize = HID_REPORT_SIZE;
+pub(crate) const REPORT_SIZE: usize = HID_REPORT_SIZE;
 
 /// HID reader half: receives host -> token reports.
-pub type HidRx<'d> = embassy_usb::class::hid::HidReader<'d, Driver<'d, USB>, REPORT_SIZE>;
+pub(crate) type HidRx<'d> = embassy_usb::class::hid::HidReader<'d, Driver<'d, USB>, REPORT_SIZE>;
 
 /// HID writer half: sends token -> host reports.
-pub type HidTx<'d> = embassy_usb::class::hid::HidWriter<'d, Driver<'d, USB>, REPORT_SIZE>;
+pub(crate) type HidTx<'d> = embassy_usb::class::hid::HidWriter<'d, Driver<'d, USB>, REPORT_SIZE>;
 
 /// embassy-usb device handle. Spawn its `run` future to keep the USB stack
 /// alive.
-pub type UsbStack<'d> = UsbDevice<'d, Driver<'d, USB>>;
+pub(crate) type UsbStack<'d> = UsbDevice<'d, Driver<'d, USB>>;
 
 /// Descriptor and control-transfer buffers borrowed by the embassy-usb
 /// builder for the lifetime of the device.
@@ -66,23 +66,23 @@ pub type UsbStack<'d> = UsbDevice<'d, Driver<'d, USB>>;
 /// Held in a separate struct so the borrow checker sees one stable address
 /// for each buffer. Storing them as fields of a single `static mut` value
 /// is the idiomatic embassy-rp pattern for systems without an allocator.
-pub struct UsbBuffers
+pub(crate) struct UsbBuffers
 {
     /// USB configuration descriptor buffer.
-    pub config_descriptor: [u8; 256],
+    pub(crate) config_descriptor: [u8; 256],
     /// USB BOS descriptor buffer.
-    pub bos_descriptor:    [u8; 256],
+    pub(crate) bos_descriptor:    [u8; 256],
     /// USB MSOS descriptor buffer (unused, kept for the Builder API).
-    pub msos_descriptor:   [u8; 256],
+    pub(crate) msos_descriptor:   [u8; 256],
     /// Control transfer scratch buffer.
-    pub control_buf:       [u8; 64],
+    pub(crate) control_buf:       [u8; 64],
 }
 
 impl UsbBuffers
 {
     /// Build an empty set of buffers.
     #[must_use]
-    pub const fn new() -> Self
+    pub(crate) const fn new() -> Self
     {
         Self
         {
@@ -111,7 +111,7 @@ impl Default for UsbBuffers
 ///
 /// Returns the device (whose `run` future must be polled forever by a task)
 /// and the split HID reader/writer.
-pub fn build_usb<'d>
+pub(crate) fn build_usb<'d>
 (
     usb: Peri<'d, USB>,
     buffers: &'d mut UsbBuffers,

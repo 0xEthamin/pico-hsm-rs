@@ -24,7 +24,8 @@ mod common;
 use common::{block_on, MockHal};
 
 use atecc608b::Atecc;
-use atecc608b::command::read_write::{
+use atecc608b::command::read_write::
+{
     config_or_otp_address,
     data_address,
     Zone,

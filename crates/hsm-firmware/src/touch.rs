@@ -39,7 +39,7 @@ const SAMPLE_INTERVAL: Duration = Duration::from_millis(1);
 /// `button` is an `Input` configured with an internal pull-up. The pin is
 /// owned by this task for the lifetime of the firmware.
 #[embassy_executor::task]
-pub async fn touch_task(button: Input<'static>) -> !
+pub(crate) async fn touch_task(button: Input<'static>) -> !
 {
     // Initial state: button assumed released. The first few samples
     // confirm or correct this.

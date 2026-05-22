@@ -28,7 +28,7 @@ use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_RANDOM_MS, OP_RANDOM};
 
 /// Number of random bytes returned by the chip in one Random command.
-pub const RANDOM_OUTPUT_LEN: usize = 32;
+pub(crate) const RANDOM_OUTPUT_LEN: usize = 32;
 
 impl<H> Atecc<H>
 where

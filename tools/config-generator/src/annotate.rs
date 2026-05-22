@@ -28,7 +28,7 @@ use std::fmt::Write;
 /// The CRC value passed in is included at the bottom and is meant to be
 /// the CRC of the writable portion (bytes 16-127), computed by the caller.
 #[must_use]
-pub fn format(blob: &[u8], crc: u16) -> String
+pub(crate) fn format(blob: &[u8], crc: u16) -> String
 {
     let mut out = String::with_capacity(8192);
 

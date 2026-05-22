@@ -57,7 +57,7 @@ const ALTERNATE_INTERVAL: Duration = Duration::from_millis(100);
 ///
 /// Both LEDs are owned by this task for the lifetime of the firmware.
 #[embassy_executor::task]
-pub async fn animation_task
+pub(crate) async fn animation_task
 (
     mut led_green: Output<'static>,
     mut led_yellow: Output<'static>,

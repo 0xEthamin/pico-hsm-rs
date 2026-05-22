@@ -66,7 +66,7 @@ use crate::opcodes::{
 /// - [`AteccError::SelfTestFailure`] if the response is the self-test failure
 ///   pattern. The chip is unusable until the next power cycle.
 /// - [`AteccError::Hal`] if the HAL itself reports an I2C or GPIO error.
-pub async fn wake<H>(hal: &mut H, device_addr: u8) -> Result<(), AteccError<H::Error>>
+pub(crate) async fn wake<H>(hal: &mut H, device_addr: u8) -> Result<(), AteccError<H::Error>>
 where
     H: AteccHal,
 {
@@ -103,7 +103,7 @@ where
 ///
 /// # Errors
 /// [`AteccError::Hal`] if the I2C write fails.
-pub async fn idle<H>(hal: &mut H, device_addr: u8) -> Result<(), AteccError<H::Error>>
+pub(crate) async fn idle<H>(hal: &mut H, device_addr: u8) -> Result<(), AteccError<H::Error>>
 where
     H: AteccHal,
 {
@@ -117,7 +117,7 @@ where
 ///
 /// # Errors
 /// [`AteccError::Hal`] if the I2C write fails.
-pub async fn sleep<H>(hal: &mut H, device_addr: u8) -> Result<(), AteccError<H::Error>>
+pub(crate) async fn sleep<H>(hal: &mut H, device_addr: u8) -> Result<(), AteccError<H::Error>>
 where
     H: AteccHal,
 {

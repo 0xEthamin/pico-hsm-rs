@@ -62,7 +62,7 @@ use crate::usb::{HidRx, HidTx, REPORT_SIZE, UsbStack};
 
 /// Drive the embassy-usb device stack. Spawn this once at boot.
 #[embassy_executor::task]
-pub async fn usb_run_task(mut usb: UsbStack<'static>) -> !
+pub(crate) async fn usb_run_task(mut usb: UsbStack<'static>) -> !
 {
     usb.run().await
 }
@@ -72,7 +72,7 @@ pub async fn usb_run_task(mut usb: UsbStack<'static>) -> !
 ///
 /// This task owns the [`CryptoService`] and therefore runs **sequentially**.
 /// Concurrent requests are not supported; the protocol does not need them.
-pub async fn dispatch_loop<H, C>
+pub(crate) async fn dispatch_loop<H, C>
 (
     mut rx: HidRx<'static>,
     mut tx: HidTx<'static>,

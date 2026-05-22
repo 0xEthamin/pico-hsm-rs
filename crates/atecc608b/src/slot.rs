@@ -19,7 +19,7 @@
 //! type-safe wrapper to avoid passing arbitrary `u8` values around.
 
 /// Total number of slots on the chip.
-pub const SLOT_COUNT: u8 = 16;
+pub(crate) const SLOT_COUNT: u8 = 16;
 
 /// A validated slot identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

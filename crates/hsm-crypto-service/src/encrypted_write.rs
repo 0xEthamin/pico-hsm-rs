@@ -46,19 +46,19 @@ use sha2::{Digest, Sha256};
 
 /// Length of an ATECC chip serial number in bytes (as read from the
 /// config zone).
-pub const CHIP_SERIAL_LEN: usize = 9;
+pub(crate) const CHIP_SERIAL_LEN: usize = 9;
 
 /// Length of a slot value (32 bytes).
-pub const SLOT_VALUE_LEN: usize = 32;
+pub(crate) const SLOT_VALUE_LEN: usize = 32;
 
 /// ATECC opcode for `GenDig`.
-pub const OP_GENDIG: u8 = 0x15;
+pub(crate) const OP_GENDIG: u8 = 0x15;
 
 /// ATECC opcode for `Write`.
-pub const OP_WRITE: u8 = 0x12;
+pub(crate) const OP_WRITE: u8 = 0x12;
 
 /// Zone byte encoding `Data` in the `GenDig` and Write commands.
-pub const ZONE_DATA: u8 = 0x02;
+pub(crate) const ZONE_DATA: u8 = 0x02;
 
 /// Compute the `TempKey` value that the chip ends up with after a
 /// `Nonce(passthrough, nonce_input)` followed by
@@ -74,7 +74,7 @@ pub const ZONE_DATA: u8 = 0x02;
 ///
 /// `chip_serial` is the 9-byte serial number of the chip.
 #[must_use]
-pub fn derive_session_key
+pub(crate) fn derive_session_key
 (
     io_key: &[u8; SLOT_VALUE_LEN],
     nonce_input: &[u8; SLOT_VALUE_LEN],
@@ -114,7 +114,7 @@ pub fn derive_session_key
 ///
 /// The chip will XOR with the same `TempKey` to recover the plaintext.
 #[must_use]
-pub fn encrypt_payload
+pub(crate) fn encrypt_payload
 (
     plaintext: &[u8; SLOT_VALUE_LEN],
     session_key: &[u8; SLOT_VALUE_LEN],
@@ -150,7 +150,7 @@ pub fn encrypt_payload
 /// duplicates the chip's address-byte layout: a single source of truth
 /// lives in the driver.
 #[must_use]
-pub fn write_mac
+pub(crate) fn write_mac
 (
     session_key: &[u8; SLOT_VALUE_LEN],
     plaintext: &[u8; SLOT_VALUE_LEN],
@@ -187,7 +187,7 @@ pub fn write_mac
 /// Assemble the 64-byte payload (`ciphertext || mac`) that the driver
 /// expects in [`atecc608b::Atecc::write_32_encrypted`].
 #[must_use]
-pub fn build_encrypted_write_payload
+pub(crate) fn build_encrypted_write_payload
 (
     ciphertext: &[u8; SLOT_VALUE_LEN],
     mac: &[u8; SLOT_VALUE_LEN],

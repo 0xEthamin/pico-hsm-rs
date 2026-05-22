@@ -52,7 +52,7 @@ use crate::opcodes::{COMMAND_FRAME_OVERHEAD, MAX_COMMAND_DATA_LEN};
 /// Errors that can arise while parsing a response frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum PacketParseError
+pub(crate) enum PacketParseError
 {
     /// The received slice is shorter than the minimum 4-byte response.
     TooShort,
@@ -72,7 +72,7 @@ pub enum PacketParseError
 /// Errors that can arise while serializing a command frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum PacketBuildError
+pub(crate) enum PacketBuildError
 {
     /// The provided data buffer would make the frame exceed
     /// [`crate::opcodes::MAX_PACKET_SIZE`].
@@ -112,7 +112,7 @@ pub enum PacketBuildError
 /// Returns [`PacketBuildError::DataTooLong`] if `data` exceeds the protocol
 /// maximum, or [`PacketBuildError::OutputBufferTooSmall`] if `out` is too
 /// small to hold the result.
-pub fn build_command_frame(
+pub(crate) fn build_command_frame(
     opcode: u8,
     param1: u8,
     param2: u16,
@@ -170,7 +170,7 @@ pub fn build_command_frame(
 /// Borrows from the receive buffer. The lifetime ties the parsed structure to
 /// the buffer so the caller cannot reuse it while still reading the payload.
 #[derive(Debug, PartialEq, Eq)]
-pub enum ResponseFrame<'a>
+pub(crate) enum ResponseFrame<'a>
 {
     /// Standard payload response. The slice contains the bytes between the
     /// count byte and the CRC.
@@ -189,7 +189,7 @@ pub enum ResponseFrame<'a>
 /// # Errors
 /// Returns [`PacketParseError`] if the frame is too short, has an inconsistent
 /// count byte, or fails CRC verification.
-pub fn parse_response_frame(frame: &[u8]) -> Result<ResponseFrame<'_>, PacketParseError>
+pub(crate) fn parse_response_frame(frame: &[u8]) -> Result<ResponseFrame<'_>, PacketParseError>
 {
     // Minimum response is 4 bytes: count, status, crc_lo, crc_hi.
     if frame.len() < 4

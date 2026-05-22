@@ -26,7 +26,7 @@ use hsm_usb_protocol::{Frame, HID_REPORT_SIZE, USB_PID, USB_VID};
 use hsm_usb_protocol::responses::ResponseStatus;
 
 /// Open the first HID device matching the mini-HSM VID/PID.
-pub fn open() -> Result<HidDevice>
+pub(crate) fn open() -> Result<HidDevice>
 {
     let api = HidApi::new().context("failed to initialise hidapi")?;
     let device = api
@@ -40,7 +40,7 @@ pub fn open() -> Result<HidDevice>
 }
 
 /// Print one line per HID device on the bus, marking matches.
-pub fn enumerate() -> Result<()>
+pub(crate) fn enumerate() -> Result<()>
 {
     let api = HidApi::new().context("failed to initialise hidapi")?;
     let mut matches = 0;
@@ -73,7 +73,7 @@ pub fn enumerate() -> Result<()>
 /// Returns `Err` if the chip responded with a non-`Ok` status. The error
 /// message includes the status code and any payload bytes the firmware
 /// included alongside (e.g. tries_remaining on WrongPin).
-pub fn send_command
+pub(crate) fn send_command
 (
     device: &HidDevice,
     opcode: u8,

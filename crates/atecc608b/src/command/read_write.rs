@@ -97,10 +97,10 @@ impl Zone
 }
 
 /// Number of 32-byte blocks in the config zone (128 / 32 = 4).
-pub const CONFIG_ZONE_BLOCK_COUNT: u8 = 4;
+pub(crate) const CONFIG_ZONE_BLOCK_COUNT: u8 = 4;
 
 /// Size of the config zone in bytes.
-pub const CONFIG_ZONE_SIZE: usize = 128;
+pub(crate) const CONFIG_ZONE_SIZE: usize = 128;
 
 /// Size of one block transferred in a 32-byte read or write.
 pub const BLOCK_SIZE: usize = 32;
@@ -109,7 +109,7 @@ pub const BLOCK_SIZE: usize = 32;
 pub const WORD_SIZE: usize = 4;
 
 /// Size of the MAC appended to an encrypted 32-byte write.
-pub const ENCRYPTED_WRITE_MAC_SIZE: usize = 32;
+pub(crate) const ENCRYPTED_WRITE_MAC_SIZE: usize = 32;
 
 /// Total size of the data field for an encrypted 32-byte write: 32 bytes of
 /// ciphertext followed by 32 bytes of MAC.
@@ -191,7 +191,7 @@ where
     /// See [`Atecc::execute_command`]. In particular, reads of locked or
     /// permission-restricted regions surface as [`AteccError::Chip`] with
     /// the relevant status byte.
-    pub async fn read_4(
+    pub(crate) async fn read_4(
         &mut self,
         zone: Zone,
         address: u16,
@@ -223,7 +223,7 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command`].
-    pub async fn read_32(
+    pub(crate) async fn read_32(
         &mut self,
         zone: Zone,
         address: u16,
@@ -256,7 +256,8 @@ where
     /// # Errors
     /// See [`Atecc::execute_command`]. The first failing block aborts the
     /// whole operation.
-    pub async fn read_config_zone(
+    pub async fn read_config_zone
+    (
         &mut self,
         out: &mut [u8; CONFIG_ZONE_SIZE],
     ) -> Result<(), AteccError<H::Error>>
@@ -278,7 +279,7 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command`].
-    pub async fn read_slot_word(
+    pub(crate) async fn read_slot_word(
         &mut self,
         slot: Slot,
         block: u8,
@@ -292,7 +293,7 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command`].
-    pub async fn read_slot_block(
+    pub(crate) async fn read_slot_block(
         &mut self,
         slot: Slot,
         block: u8,
@@ -336,7 +337,8 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command_status`].
-    pub async fn write_32(
+    pub async fn write_32
+    (
         &mut self,
         zone: Zone,
         address: u16,
@@ -367,7 +369,8 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command_status`].
-    pub async fn write_32_encrypted(
+    pub async fn write_32_encrypted
+    (
         &mut self,
         zone: Zone,
         address: u16,
@@ -388,7 +391,8 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command_status`].
-    pub async fn write_slot_word(
+    pub async fn write_slot_word
+    (
         &mut self,
         slot: Slot,
         block: u8,
@@ -403,7 +407,8 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command_status`].
-    pub async fn write_slot_block(
+    pub async fn write_slot_block
+    (
         &mut self,
         slot: Slot,
         block: u8,

@@ -142,7 +142,7 @@ impl CommandOpcode
     /// Returns `None` for any opcode the firmware does not implement,
     /// including reserved-for-future-use values.
     #[must_use]
-    pub const fn from_byte(byte: u8) -> Option<Self>
+    pub(crate) const fn from_byte(byte: u8) -> Option<Self>
     {
         match byte
         {
@@ -194,7 +194,7 @@ impl TryFrom<u8> for CommandOpcode
 pub struct UnknownOpcode
 {
     /// The raw byte that was not recognized.
-    pub byte: u8,
+    pub(crate) byte: u8,
 }
 
 // ---------------------------------------------------------------------------
@@ -217,19 +217,19 @@ pub const DIGEST_LEN: usize = 32;
 
 /// Length of the magic word protecting [`CommandOpcode::LockConfigZone`],
 /// [`CommandOpcode::LockDataZone`], and [`CommandOpcode::LockSlot`].
-pub const LOCK_MAGIC_LEN: usize = 4;
+pub(crate) const LOCK_MAGIC_LEN: usize = 4;
 
 /// Length of the I/O Protection Key (slot 8 content), in bytes.
-pub const IO_KEY_LEN: usize = 32;
+pub(crate) const IO_KEY_LEN: usize = 32;
 
 /// Result of [`parse_set_pin`]: `(old_pin, new_pin, io_key)`.
-pub type SetPinParts = ([u8; PIN_LEN], [u8; PIN_LEN], [u8; IO_KEY_LEN]);
+pub(crate) type SetPinParts = ([u8; PIN_LEN], [u8; PIN_LEN], [u8; IO_KEY_LEN]);
 
 /// Result of [`parse_unblock_pin`]: `(puk, new_pin, io_key)`.
-pub type UnblockPinParts = ([u8; PUK_LEN], [u8; PIN_LEN], [u8; IO_KEY_LEN]);
+pub(crate) type UnblockPinParts = ([u8; PUK_LEN], [u8; PIN_LEN], [u8; IO_KEY_LEN]);
 
 /// Result of [`parse_set_puk`]: `(old_puk, new_puk, io_key)`.
-pub type SetPukParts = ([u8; PUK_LEN], [u8; PUK_LEN], [u8; IO_KEY_LEN]);
+pub(crate) type SetPukParts = ([u8; PUK_LEN], [u8; PUK_LEN], [u8; IO_KEY_LEN]);
 
 /// Errors returned when a payload does not match the expected shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -389,13 +389,13 @@ pub fn parse_emergency_reset(payload: &[u8]) -> Result<[u8; 32], PayloadError>
 
 /// Magic word for [`CommandOpcode::LockConfigZone`]. Picked to be a
 /// distinctive 32-bit value (`DE AD BE EF`).
-pub const LOCK_CONFIG_MAGIC: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
+pub(crate) const LOCK_CONFIG_MAGIC: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
 
 /// Magic word for [`CommandOpcode::LockDataZone`] (`CA FE BA BE`).
-pub const LOCK_DATA_MAGIC: [u8; 4] = [0xCA, 0xFE, 0xBA, 0xBE];
+pub(crate) const LOCK_DATA_MAGIC: [u8; 4] = [0xCA, 0xFE, 0xBA, 0xBE];
 
 /// Magic word for [`CommandOpcode::LockSlot`] (`F0 0D CA FE`).
-pub const LOCK_SLOT_MAGIC: [u8; 4] = [0xF0, 0x0D, 0xCA, 0xFE];
+pub(crate) const LOCK_SLOT_MAGIC: [u8; 4] = [0xF0, 0x0D, 0xCA, 0xFE];
 
 /// Parse the payload of [`CommandOpcode::LockConfigZone`].
 ///

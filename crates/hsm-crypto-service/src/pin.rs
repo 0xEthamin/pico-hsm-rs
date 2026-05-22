@@ -52,13 +52,13 @@
 use sha2::{Digest, Sha256};
 
 /// Length of a SHA-256 digest.
-pub const HASH_LEN: usize = 32;
+pub(crate) const HASH_LEN: usize = 32;
 
 /// PIN length in bytes (4 ASCII digits).
-pub const PIN_LEN: usize = 4;
+pub(crate) const PIN_LEN: usize = 4;
 
 /// PUK length in bytes (8 ASCII digits).
-pub const PUK_LEN: usize = 8;
+pub(crate) const PUK_LEN: usize = 8;
 
 /// Domain separation tag for the PIN salt.
 const PIN_SALT_DOMAIN: &[u8] = b"mini-hsm-pin-salt-v1";
@@ -87,7 +87,7 @@ pub enum FormatError
 /// # Errors
 /// Returns [`FormatError::NonDigit`] at the position of the first non-digit
 /// byte.
-pub fn validate_digits(code: &[u8]) -> Result<(), FormatError>
+pub(crate) fn validate_digits(code: &[u8]) -> Result<(), FormatError>
 {
     for (position, byte) in code.iter().enumerate()
     {
@@ -103,7 +103,7 @@ pub fn validate_digits(code: &[u8]) -> Result<(), FormatError>
 ///
 /// The serial is the 9-byte ATECC unique ID read from the config zone.
 #[must_use]
-pub fn pin_salt(chip_serial: &[u8; 9]) -> [u8; HASH_LEN]
+pub(crate) fn pin_salt(chip_serial: &[u8; 9]) -> [u8; HASH_LEN]
 {
     let mut hasher = Sha256::new();
     hasher.update(PIN_SALT_DOMAIN);
@@ -115,7 +115,7 @@ pub fn pin_salt(chip_serial: &[u8; 9]) -> [u8; HASH_LEN]
 
 /// Compute the PUK salt deterministically from the chip serial number.
 #[must_use]
-pub fn puk_salt(chip_serial: &[u8; 9]) -> [u8; HASH_LEN]
+pub(crate) fn puk_salt(chip_serial: &[u8; 9]) -> [u8; HASH_LEN]
 {
     let mut hasher = Sha256::new();
     hasher.update(PUK_SALT_DOMAIN);
@@ -127,7 +127,7 @@ pub fn puk_salt(chip_serial: &[u8; 9]) -> [u8; HASH_LEN]
 
 /// Compute `SHA-256(pin || pin_salt)`. This is the value stored in slot 5.
 #[must_use]
-pub fn pin_hash(pin: &[u8; PIN_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
+pub(crate) fn pin_hash(pin: &[u8; PIN_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
 {
     let mut hasher = Sha256::new();
     hasher.update(pin);
@@ -139,7 +139,7 @@ pub fn pin_hash(pin: &[u8; PIN_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
 
 /// Compute `SHA-256(puk || puk_salt)`. This is the value stored in slot 6.
 #[must_use]
-pub fn puk_hash(puk: &[u8; PUK_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
+pub(crate) fn puk_hash(puk: &[u8; PUK_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
 {
     let mut hasher = Sha256::new();
     hasher.update(puk);
@@ -173,7 +173,7 @@ pub fn puk_hash(puk: &[u8; PUK_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
 /// `chip_serial` must therefore have valid values at indices 0, 1, 8;
 /// the others are ignored.
 #[must_use]
-pub fn checkmac_response
+pub(crate) fn checkmac_response
 (
     slot_value: &[u8; HASH_LEN],
     challenge: &[u8; HASH_LEN],
@@ -202,7 +202,7 @@ pub fn checkmac_response
 /// `chip_serial[0..2]` are the SN[0..2] bytes (the so-called "SN8" plus
 /// the two low bytes), which the chip mixes in at the expected offsets.
 #[must_use]
-pub fn checkmac_other_data(key_id: u8, chip_serial: &[u8; 9]) -> [u8; 13]
+pub(crate) fn checkmac_other_data(key_id: u8, chip_serial: &[u8; 9]) -> [u8; 13]
 {
     let mut data = [0u8; 13];
     // CheckMac opcode and mode bytes that the chip itself substitutes.

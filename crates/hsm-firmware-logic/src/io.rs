@@ -35,7 +35,7 @@
 /// Two methods only: turn on, turn off. Everything fancier (blink, pulse,
 /// fade) is composed on top by reading the LED pattern out of the
 /// [`crate::state_machine::TokenState`] and toggling at the right cadence.
-pub trait Led
+pub(crate) trait Led
 {
     /// Turn the LED on (drive the GPIO high on active-high wiring).
     fn on(&mut self);
@@ -50,7 +50,7 @@ pub trait Led
 /// pressed and `true` when released, because of the pull-up to 3V3. The
 /// trait abstracts that away and returns a boolean in the user-friendly
 /// direction: `true` means "user is pressing the button right now".
-pub trait Button
+pub(crate) trait Button
 {
     /// `true` if the button is currently pressed at the GPIO level (raw,
     /// not yet debounced).
@@ -63,7 +63,7 @@ pub trait Button
 /// At a 1 ms sampling rate this gives a 5 ms minimum settling time, well
 /// above the typical 1 ms of switch bounce we expect from the tactile
 /// switches we use.
-pub const DEBOUNCE_STABLE_SAMPLES: u8 = 5;
+pub(crate) const DEBOUNCE_STABLE_SAMPLES: u8 = 5;
 
 /// Software debouncer state.
 ///
@@ -134,7 +134,7 @@ impl Debouncer
 
     /// Current stable level (without consuming a sample).
     #[must_use]
-    pub const fn stable(&self) -> bool
+    pub(crate) const fn stable(&self) -> bool
     {
         self.stable
     }
@@ -148,15 +148,15 @@ mod test_mocks
 
     /// Mock LED that records every state change in a tiny log.
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct MockLed
+    pub(crate) struct MockLed
     {
-        pub state: bool,
-        pub transitions: u32,
+        pub(crate) state: bool,
+        pub(crate) transitions: u32,
     }
 
     impl MockLed
     {
-        pub const fn new() -> Self
+        pub(crate) const fn new() -> Self
         {
             Self { state: false, transitions: 0 }
         }
@@ -184,14 +184,14 @@ mod test_mocks
     }
 
     /// Mock button whose state is set by the test.
-    pub struct MockButton
+    pub(crate) struct MockButton
     {
-        pub pressed: bool,
+        pub(crate) pressed: bool,
     }
 
     impl MockButton
     {
-        pub const fn new(pressed: bool) -> Self
+        pub(crate) const fn new(pressed: bool) -> Self
         {
             Self { pressed }
         }

@@ -50,14 +50,15 @@
 pub mod command;
 pub mod crc;
 pub mod driver;
-pub mod error;
+pub(crate) mod error;
 pub mod hal;
 pub mod opcodes;
-pub mod packet;
-pub mod slot;
-pub mod wake;
+pub(crate) mod packet;
+pub(crate) mod slot;
+pub(crate) mod wake;
 
 pub use driver::Atecc;
-pub use error::{AteccError, ChipError};
+pub use error::AteccError;
+pub use error::ChipError;
 pub use hal::AteccHal;
 pub use slot::Slot;

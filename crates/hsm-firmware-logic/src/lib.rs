@@ -26,7 +26,8 @@
 #![warn(clippy::pedantic)]
 
 pub mod io;
-pub mod state_machine;
+pub(crate) mod state_machine;
 
-pub use io::{Button, Debouncer, Led, DEBOUNCE_STABLE_SAMPLES};
+pub use io::Debouncer;
+pub(crate) use io::{Button, Led, DEBOUNCE_STABLE_SAMPLES};
 pub use state_machine::{Event, LedPattern, TokenState, ERROR_DISPLAY_MS, TOUCH_TIMEOUT_MS};

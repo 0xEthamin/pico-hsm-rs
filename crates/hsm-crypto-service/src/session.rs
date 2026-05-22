@@ -51,25 +51,25 @@ impl Session
 {
     /// Build a fresh session, closed.
     #[must_use]
-    pub const fn new() -> Self
+    pub(crate) const fn new() -> Self
     {
         Self { last_activity_ms: None }
     }
 
     /// Open the session at the given time.
-    pub fn open(&mut self, now_ms: u64)
+    pub(crate) fn open(&mut self, now_ms: u64)
     {
         self.last_activity_ms = Some(now_ms);
     }
 
     /// Close the session immediately.
-    pub fn close(&mut self)
+    pub(crate) fn close(&mut self)
     {
         self.last_activity_ms = None;
     }
 
     /// Refresh the activity timestamp. No-op if the session is closed.
-    pub fn touch(&mut self, now_ms: u64)
+    pub(crate) fn touch(&mut self, now_ms: u64)
     {
         if self.last_activity_ms.is_some()
         {
@@ -80,7 +80,7 @@ impl Session
     /// Returns `true` if the session is open and not yet timed out at the
     /// given current time.
     #[must_use]
-    pub fn is_active(&self, now_ms: u64) -> bool
+    pub(crate) fn is_active(&self, now_ms: u64) -> bool
     {
         match self.last_activity_ms
         {

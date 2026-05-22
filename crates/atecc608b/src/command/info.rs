@@ -32,7 +32,7 @@ use crate::opcodes::{EXEC_TIME_INFO_MS, OP_INFO};
 /// Source: `CryptoAuthLib` `lib/calib/calib_command.h`, `INFO_MODE_*` constants.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
-pub enum InfoMode
+pub(crate) enum InfoMode
 {
     /// Return the silicon revision (4 bytes).
     Revision      = 0x00,
@@ -92,7 +92,7 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command`].
-    pub async fn info_state(&mut self) -> Result<[u8; 4], AteccError<H::Error>>
+    pub(crate) async fn info_state(&mut self) -> Result<[u8; 4], AteccError<H::Error>>
     {
         let mut response_buf = [0u8; 7];
         let payload = self

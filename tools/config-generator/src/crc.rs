@@ -32,7 +32,7 @@
 
 /// Compute the CRC-16 over `data`.
 #[must_use]
-pub fn crc16(data: &[u8]) -> u16
+pub(crate) fn crc16(data: &[u8]) -> u16
 {
     const POLY: u16 = 0x8005;
     let mut crc: u16 = 0x0000;

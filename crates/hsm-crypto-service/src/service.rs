@@ -48,17 +48,17 @@ use crate::slots::
 };
 
 /// Convenience alias for the service's result type.
-pub type ServiceResult<T, HalError> = Result<T, CryptoServiceError<HalError>>;
+pub(crate) type ServiceResult<T, HalError> = Result<T, CryptoServiceError<HalError>>;
 
 /// Length of the chip serial number, in bytes, as read from the config
 /// zone.
-pub const CHIP_SERIAL_LEN: usize = 9;
+pub(crate) const CHIP_SERIAL_LEN: usize = 9;
 
 /// 64-byte raw public key returned by `GenKey`.
-pub type PublicKey = [u8; 64];
+pub(crate) type PublicKey = [u8; 64];
 
 /// 64-byte raw `R || S` ECDSA signature returned by `Sign`.
-pub type Signature = [u8; 64];
+pub(crate) type Signature = [u8; 64];
 
 /// Returned by [`CryptoService::info`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,7 +119,7 @@ where
     }
 
     /// Consume the service and return the underlying driver and clock.
-    pub fn into_parts(self) -> (Atecc<H>, C)
+    pub(crate) fn into_parts(self) -> (Atecc<H>, C)
     {
         (self.atecc, self.clock)
     }
@@ -843,7 +843,7 @@ where
     ///
     /// # Errors
     /// See [`Self::sign`].
-    pub async fn sign_primary
+    pub(crate) async fn sign_primary
     (
         &mut self,
         digest: &[u8; 32],
@@ -869,7 +869,7 @@ where
     }
 
     /// Force-close the PIN session.
-    pub fn close_session(&mut self)
+    pub(crate) fn close_session(&mut self)
     {
         self.session.close();
     }

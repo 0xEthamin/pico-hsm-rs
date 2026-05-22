@@ -50,7 +50,7 @@ use crate::channels::{EVENT_CHANNEL, TOKEN_STATE, TOUCH_CONFIRMED};
 
 /// Drive the token state machine. Spawn once at boot.
 #[embassy_executor::task]
-pub async fn state_task() -> !
+pub(crate) async fn state_task() -> !
 {
     let mut state = TokenState::initial();
     // Publish initial state immediately so the animation task does not

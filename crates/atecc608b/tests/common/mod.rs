@@ -30,7 +30,7 @@ use atecc608b::AteccHal;
 
 /// A single recorded interaction with the HAL.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum MockOp
+pub(crate) enum MockOp
 {
     /// I2C master write of `data` to `addr`.
     I2cWrite
@@ -80,12 +80,12 @@ pub enum MockOp
 /// Error type for the mock HAL. The mock panics on mismatched expectations,
 /// so this only exists to satisfy the `AteccHal::Error` associated type.
 #[derive(Debug, PartialEq, Eq)]
-pub struct MockHalError;
+pub(crate) struct MockHalError;
 
 /// Scriptable mock that records each call and verifies it against a queue of
 /// expectations.
 #[derive(Debug, Default)]
-pub struct MockHal
+pub(crate) struct MockHal
 {
     expectations: VecDeque<MockOp>,
     read_data:    VecDeque<Vec<u8>>,
@@ -94,13 +94,13 @@ pub struct MockHal
 impl MockHal
 {
     /// Create an empty mock.
-    pub fn new() -> Self
+    pub(crate) fn new() -> Self
     {
         Self::default()
     }
 
     /// Queue an expected I2C write.
-    pub fn expect_i2c_write(&mut self, addr: u8, data: &[u8])
+    pub(crate) fn expect_i2c_write(&mut self, addr: u8, data: &[u8])
     {
         self.expectations.push_back(MockOp::I2cWrite
         {
@@ -111,7 +111,7 @@ impl MockHal
 
     /// Queue an expected I2C read together with the bytes the mock will
     /// return when that read is performed.
-    pub fn expect_i2c_read(&mut self, addr: u8, response: &[u8])
+    pub(crate) fn expect_i2c_read(&mut self, addr: u8, response: &[u8])
     {
         self.expectations.push_back(MockOp::I2cRead
         {
@@ -124,25 +124,25 @@ impl MockHal
     /// Queue an expected I2C read that the mock will reject with an error
     /// (simulated NACK). Used to test the polling loop: while the chip is
     /// still executing a command it NACKs subsequent reads.
-    pub fn expect_i2c_read_nack(&mut self, addr: u8, len: usize)
+    pub(crate) fn expect_i2c_read_nack(&mut self, addr: u8, len: usize)
     {
         self.expectations.push_back(MockOp::I2cReadNack { addr, len });
     }
 
     /// Queue an expected SDA wake pulse.
-    pub fn expect_pulse_sda_low(&mut self, duration_us: u32)
+    pub(crate) fn expect_pulse_sda_low(&mut self, duration_us: u32)
     {
         self.expectations.push_back(MockOp::PulseSdaLow { duration_us });
     }
 
     /// Queue an expected microsecond delay.
-    pub fn expect_delay_us(&mut self, duration_us: u32)
+    pub(crate) fn expect_delay_us(&mut self, duration_us: u32)
     {
         self.expectations.push_back(MockOp::DelayUs { duration_us });
     }
 
     /// Queue an expected millisecond delay.
-    pub fn expect_delay_ms(&mut self, duration_ms: u32)
+    pub(crate) fn expect_delay_ms(&mut self, duration_ms: u32)
     {
         self.expectations.push_back(MockOp::DelayMs { duration_ms });
     }
@@ -150,7 +150,7 @@ impl MockHal
     /// Panic if any expectation remains unfulfilled.
     ///
     /// Call this at the end of each test.
-    pub fn verify(&self)
+    pub(crate) fn verify(&self)
     {
         assert!(
             self.expectations.is_empty(),
@@ -270,7 +270,7 @@ impl AteccHal for MockHal
 /// Tiny async runner for integration tests. Polls a future to completion.
 /// The mock never returns `Pending`, so a single poll cycle is enough in
 /// practice, but the loop handles potential future runtime additions.
-pub fn block_on<F: core::future::Future>(f: F) -> F::Output
+pub(crate) fn block_on<F: core::future::Future>(f: F) -> F::Output
 {
     use core::pin::pin;
     use core::task::{Context, Poll};

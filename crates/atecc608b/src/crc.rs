@@ -78,7 +78,7 @@ pub fn crc16_to_bytes(crc: u16) -> [u8; 2]
 /// Returns `true` if the CRC matches. Returns `false` if `frame` has fewer
 /// than 3 bytes (no room for at least one payload byte plus 2 CRC bytes).
 #[must_use]
-pub fn verify_trailing_crc(frame: &[u8]) -> bool
+pub(crate) fn verify_trailing_crc(frame: &[u8]) -> bool
 {
     if frame.len() < 3
     {

@@ -50,22 +50,22 @@ use hsm_firmware_logic::{Event, TokenState};
 /// holds 0 or 1 event most of the time. The producer tasks all use
 /// non-blocking `try_send` so an unexpected backlog drops events rather
 /// than stalling the firmware.
-pub const EVENT_QUEUE_DEPTH: usize = 16;
+pub(crate) const EVENT_QUEUE_DEPTH: usize = 16;
 
 /// Fan-in queue of state machine events.
-pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Event, EVENT_QUEUE_DEPTH> =
+pub(crate) static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, Event, EVENT_QUEUE_DEPTH> =
     Channel::new();
 
 /// Last-write-wins signal of the current operating state. The animation
 /// task reads this on every frame; the state task republishes on every
 /// transition.
-pub static TOKEN_STATE: Signal<CriticalSectionRawMutex, TokenState> = Signal::new();
+pub(crate) static TOKEN_STATE: Signal<CriticalSectionRawMutex, TokenState> = Signal::new();
 
 /// Pulsed by the state task when the SM enters [`TokenState::Signing`].
 /// The dispatch loop blocks on it after firing
 /// [`hsm_firmware_logic::Event::SignRequested`] so it can resume signing
 /// only after the user has physically touched the button.
-pub static TOUCH_CONFIRMED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+pub(crate) static TOUCH_CONFIRMED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Fire an event without blocking.
 ///
@@ -73,7 +73,7 @@ pub static TOUCH_CONFIRMED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 /// are advisory: the SM is conservative on unknown transitions, so a
 /// dropped event at worst delays a transition by one cycle. We log it so
 /// it does not go unnoticed.
-pub fn post_event(event: Event)
+pub(crate) fn post_event(event: Event)
 {
     if EVENT_CHANNEL.try_send(event).is_err()
     {

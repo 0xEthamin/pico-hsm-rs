@@ -86,7 +86,8 @@ where
     /// # Errors
     /// See [`Atecc::execute_command_status`]. Returns a chip error if the
     /// data zone is already locked.
-    pub async fn privwrite_cleartext(
+    pub async fn privwrite_cleartext
+    (
         &mut self,
         slot: Slot,
         private_key: &[u8; 32],

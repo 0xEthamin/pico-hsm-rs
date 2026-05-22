@@ -77,7 +77,7 @@ static HID_STATE: StaticCell<State<'static>> = StaticCell::new();
 
 /// Clock backed by `embassy_time::Instant`. Provides milliseconds since
 /// boot, monotonic, used by the PIN session timeout.
-pub struct EmbassyClock;
+pub(crate) struct EmbassyClock;
 
 impl Clock for EmbassyClock
 {

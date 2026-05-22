@@ -82,7 +82,7 @@ where
     }
 
     /// Build a new driver against a chip with a non-default I2C address.
-    pub fn with_address(hal: H, addr: u8) -> Self
+    pub(crate) fn with_address(hal: H, addr: u8) -> Self
     {
         Self
         {
@@ -102,7 +102,7 @@ where
     ///
     /// Useful for tests that need to manipulate the mock directly. Most
     /// production code should never need this.
-    pub fn hal_mut(&mut self) -> &mut H
+    pub(crate) fn hal_mut(&mut self) -> &mut H
     {
         &mut self.hal
     }
@@ -112,7 +112,7 @@ where
     ///
     /// # Errors
     /// Forwards every variant from [`crate::wake::wake`].
-    pub async fn ensure_awake(&mut self) -> Result<(), AteccError<H::Error>>
+    pub(crate) async fn ensure_awake(&mut self) -> Result<(), AteccError<H::Error>>
     {
         if !self.is_awake
         {
@@ -127,7 +127,7 @@ where
     ///
     /// # Errors
     /// Forwards every variant from [`crate::wake::wake`].
-    pub async fn wake(&mut self) -> Result<(), AteccError<H::Error>>
+    pub(crate) async fn wake(&mut self) -> Result<(), AteccError<H::Error>>
     {
         self.is_awake = false;
         self.ensure_awake().await
@@ -150,7 +150,7 @@ where
     ///
     /// # Errors
     /// Forwards [`AteccError::Hal`] from the I2C layer.
-    pub async fn sleep(&mut self) -> Result<(), AteccError<H::Error>>
+    pub(crate) async fn sleep(&mut self) -> Result<(), AteccError<H::Error>>
     {
         sleep(&mut self.hal, self.device_addr).await?;
         self.is_awake = false;
@@ -184,7 +184,7 @@ where
     ///
     /// # Errors
     /// Every variant of [`AteccError`] is reachable. See its documentation.
-    pub async fn execute_command<'r>(
+    pub(crate) async fn execute_command<'r>(
         &mut self,
         opcode: u8,
         param1: u8,
@@ -238,7 +238,7 @@ where
     ///
     /// # Errors
     /// Every variant of [`AteccError`] is reachable. See its documentation.
-    pub async fn execute_command_status(
+    pub(crate) async fn execute_command_status(
         &mut self,
         opcode: u8,
         param1: u8,

@@ -111,7 +111,7 @@ impl ChipError
     ///
     /// Returns `None` for `0x00` which means success.
     #[must_use]
-    pub fn from_status_byte(byte: u8) -> Option<Self>
+    pub(crate) fn from_status_byte(byte: u8) -> Option<Self>
     {
         match byte
         {

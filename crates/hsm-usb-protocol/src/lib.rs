@@ -50,7 +50,7 @@
 
 pub mod commands;
 pub mod frame;
-pub mod hid_descriptor;
+pub(crate) mod hid_descriptor;
 pub mod responses;
 
 pub use commands::CommandOpcode;
@@ -75,7 +75,7 @@ pub const USB_PID: u16 = 0x1312;
 pub const HID_REPORT_SIZE: usize = 128;
 
 /// Size of the 3-byte header (`opcode | len_lo | len_hi`).
-pub const HEADER_SIZE: usize = 3;
+pub(crate) const HEADER_SIZE: usize = 3;
 
 /// Maximum payload size in a report (`HID_REPORT_SIZE` - [`HEADER_SIZE`]).
-pub const MAX_PAYLOAD_SIZE: usize = HID_REPORT_SIZE - HEADER_SIZE;
+pub(crate) const MAX_PAYLOAD_SIZE: usize = HID_REPORT_SIZE - HEADER_SIZE;

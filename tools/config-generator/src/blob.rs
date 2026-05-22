@@ -161,7 +161,7 @@ const LOCK_VALUE_UNLOCKED: u8 = 0x55;
 const LOCK_CONFIG_UNLOCKED: u8 = 0x55;
 
 /// Total size of the configuration zone.
-pub const CONFIG_ZONE_SIZE: usize = 128;
+pub(crate) const CONFIG_ZONE_SIZE: usize = 128;
 
 /// Build the full 128-byte configuration zone blob, including factory-area
 /// placeholders at bytes 0-15.
@@ -171,7 +171,7 @@ pub const CONFIG_ZONE_SIZE: usize = 128;
 /// irrelevant to the actual provisioning operation. The firmware reads the
 /// real factory values from the chip at runtime.
 #[must_use]
-pub fn build() -> [u8; CONFIG_ZONE_SIZE]
+pub(crate) fn build() -> [u8; CONFIG_ZONE_SIZE]
 {
     let mut cfg = [0u8; CONFIG_ZONE_SIZE];
 

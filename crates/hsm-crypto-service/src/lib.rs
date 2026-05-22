@@ -25,13 +25,14 @@
 #![deny(unsafe_code)]
 #![warn(clippy::pedantic)]
 
-pub mod encrypted_write;
+pub(crate) mod encrypted_write;
 pub mod error;
-pub mod pin;
-pub mod service;
+pub(crate) mod pin;
+pub(crate) mod service;
 pub mod session;
-pub mod slots;
+pub(crate) mod slots;
 
 pub use error::CryptoServiceError;
-pub use service::{CryptoService, DeviceInfo, PinStatus, PublicKey, ServiceResult, Signature};
+pub use service::CryptoService;
+pub(crate) use service::{DeviceInfo, PinStatus, PublicKey, ServiceResult, Signature};
 pub use session::{Clock, Session, SESSION_TIMEOUT_MS};

@@ -53,7 +53,7 @@ use embassy_time::{Duration, Timer};
 
 use atecc608b::AteccHal;
 
-bind_interrupts!(pub struct Irqs
+bind_interrupts!(pub(crate) struct Irqs
 {
     I2C0_IRQ => InterruptHandler<I2C0>;
 });
@@ -61,11 +61,11 @@ bind_interrupts!(pub struct Irqs
 /// I2C bus frequency. The ATECC608B supports up to 1 MHz; we run at the
 /// "fast mode" 400 kHz to match the typical layout constraints of
 /// breadboard / 2-layer PCB hardware. Lower if signal integrity is poor.
-pub const I2C_FREQ_HZ: u32 = 400_000;
+pub(crate) const I2C_FREQ_HZ: u32 = 400_000;
 
 /// Error type returned by the RP2040 HAL.
 #[derive(Debug, defmt::Format)]
-pub enum Rp2040HalError
+pub(crate) enum Rp2040HalError
 {
     /// An I2C transfer failed (NACK, arbitration loss, abort, etc).
     I2c(i2c::Error),
@@ -84,7 +84,7 @@ impl From<i2c::Error> for Rp2040HalError
 /// Hard-wired to SCL=GP5, SDA=GP4 per the project schematic. To use a
 /// different pin pair, change the concrete `PIN_*` types in the struct
 /// fields and the `new` constructor signature.
-pub struct Rp2040Hal
+pub(crate) struct Rp2040Hal
 {
     /// Owned I2C0 instance, used by [`Peri::reborrow`] on each
     /// transaction.
@@ -103,7 +103,7 @@ impl Rp2040Hal
     /// The caller passes `peripherals.I2C0`, `peripherals.PIN_5` (SCL),
     /// and `peripherals.PIN_4` (SDA).
     #[must_use]
-    pub fn new
+    pub(crate) fn new
     (
         i2c_peri: Peri<'static, I2C0>,
         scl: Peri<'static, PIN_5>,

@@ -19,7 +19,8 @@ mod common;
 
 use common::{block_on, MockHal};
 
-use atecc608b::command::checkmac::{
+use atecc608b::command::checkmac::
+{
     CHECKMAC_CHALLENGE_SIZE,
     CHECKMAC_CLIENT_RESPONSE_SIZE,
     CHECKMAC_DATA_SIZE,

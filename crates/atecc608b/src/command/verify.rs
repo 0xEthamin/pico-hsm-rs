@@ -37,7 +37,7 @@ use crate::command::genkey::PUBLIC_KEY_SIZE;
 use crate::command::sign::SIGNATURE_SIZE;
 
 /// Size of the `Verify External` data payload (signature || pubkey).
-pub const VERIFY_EXTERNAL_DATA_SIZE: usize = SIGNATURE_SIZE + PUBLIC_KEY_SIZE;
+pub(crate) const VERIFY_EXTERNAL_DATA_SIZE: usize = SIGNATURE_SIZE + PUBLIC_KEY_SIZE;
 
 /// `param1` mode: External verify.
 const VERIFY_MODE_EXTERNAL: u8 = 0x02;

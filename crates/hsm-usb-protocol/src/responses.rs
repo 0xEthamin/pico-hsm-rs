@@ -119,7 +119,7 @@ impl TryFrom<u8> for ResponseStatus
 pub struct UnknownStatus
 {
     /// The raw byte that was not recognized.
-    pub byte: u8,
+    pub(crate) byte: u8,
 }
 
 #[cfg(test)]
