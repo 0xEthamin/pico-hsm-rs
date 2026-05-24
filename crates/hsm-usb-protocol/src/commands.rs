@@ -18,6 +18,18 @@
 //! See [`crate::frame::Frame`] for the wire layout. The opcode byte is
 //! [`CommandOpcode`]; the payload layout is documented per-opcode below
 //! (in the variant doc-comments) and parsed via the helpers in this module.
+//!
+//! # Opcode ranges
+//!
+//! - `0x01..=0x0F`: runtime operations. Read-only inspection, signing,
+//!   PIN/PUK session management, recovery. Safe to call at any point
+//!   after provisioning is complete.
+//! - `0x10..=0x1F`: provisioning operations. Only effective while the
+//!   relevant zone is unlocked. Sequenced once at the chip's first boot
+//!   and never again in normal operation.
+//! - `0xF0..=0xFF`: destructive / irreversible operations (zone and slot
+//!   locks). Protected by per-opcode magic words and, on the host side,
+//!   by interactive double-confirmation prompts.
 
 /// Opcode byte for each command.
 #[repr(u8)]
@@ -65,6 +77,13 @@ pub enum CommandOpcode
     /// current PIN). Rewrites slot 6 via the encrypted-write protocol.
     /// Payload: `[old_puk: [u8; 8], new_puk: [u8; 8], io_key: [u8; 32]]`.
     SetPuk             = 0x0B,
+    /// `0x0C` - `CloseSession`: terminate the current PIN session
+    /// immediately, without waiting for the 30 s inactivity timeout.
+    ///
+    /// Idempotent: closing an already-closed session is a no-op and
+    /// still returns `Ok`. No payload from the host. No payload in the
+    /// response.
+    CloseSession       = 0x0C,
     /// `0x0D` - `EmergencyReset(magic, io_key)`: last-chance reset.
     /// Requires that **both** PIN and PUK batches are exhausted. The
     /// firmware refuses to run otherwise with the
@@ -84,6 +103,22 @@ pub enum CommandOpcode
     /// Payload: `[magic: [u8; 4], io_key: [u8; 32]]` (36 bytes).
     /// Response payload on success: `[new_puk: [u8; 8]]`.
     EmergencyReset     = 0x0D,
+    /// `0x0E` - `ReadSlotBlock(slot, block)`: read one 32-byte block from
+    /// a data slot. Useful for bring-up diagnostics (verify what
+    /// `ProvisionSlot` wrote) and for inspecting the IO key in slot 8
+    /// before locking the data zone.
+    ///
+    /// The chip applies the slot's `IsSecret` / `EncryptRead` policy and
+    /// rejects reads of private ECC keys. No host-side filter is added
+    /// here: the chip is the authority.
+    ///
+    /// Payload: `[slot: u8, block: u8]`. Response: `[data: [u8; 32]]`.
+    ReadSlotBlock      = 0x0E,
+    /// `0x0F` - `ReadSlotWord(slot, block, offset_words)`: read one 4-byte
+    /// word from a data slot. Same policy as [`Self::ReadSlotBlock`].
+    /// Payload: `[slot: u8, block: u8, offset_words: u8]`.
+    /// Response: `[data: [u8; 4]]`.
+    ReadSlotWord       = 0x0F,
 
     // Provisioning (reversible while zones are unlocked).
     /// `0x10` - `WriteConfigZone(blob)`: replace the writable part of the
@@ -157,7 +192,10 @@ impl CommandOpcode
             0x09 => Some(Self::UnblockPin),
             0x0A => Some(Self::GetPinStatus),
             0x0B => Some(Self::SetPuk),
+            0x0C => Some(Self::CloseSession),
             0x0D => Some(Self::EmergencyReset),
+            0x0E => Some(Self::ReadSlotBlock),
+            0x0F => Some(Self::ReadSlotWord),
             0x10 => Some(Self::WriteConfigZone),
             0x11 => Some(Self::ProvisionSlot),
             0x12 => Some(Self::ProvisionInitialPin),
@@ -408,12 +446,12 @@ pub(crate) const LOCK_SLOT_MAGIC: [u8; 4] = [0xF0, 0x0D, 0xCA, 0xFE];
 ///   `LOCK_CONFIG_MAGIC`.
 pub fn parse_lock_config_zone(payload: &[u8]) -> Result<u16, PayloadError>
 {
-    require_len(payload, 4 + 2)?;
-    if payload[0..4] != LOCK_CONFIG_MAGIC
+    require_len(payload, LOCK_MAGIC_LEN + 2)?;
+    if payload[0..LOCK_MAGIC_LEN] != LOCK_CONFIG_MAGIC
     {
         return Err(PayloadError::MagicMismatch);
     }
-    Ok(u16::from_le_bytes([payload[4], payload[5]]))
+    Ok(u16::from_le_bytes([payload[LOCK_MAGIC_LEN], payload[LOCK_MAGIC_LEN + 1]]))
 }
 
 /// Parse the payload of [`CommandOpcode::LockDataZone`].
@@ -424,12 +462,12 @@ pub fn parse_lock_config_zone(payload: &[u8]) -> Result<u16, PayloadError>
 /// As for [`parse_lock_config_zone`] with `LOCK_DATA_MAGIC`.
 pub fn parse_lock_data_zone(payload: &[u8]) -> Result<u16, PayloadError>
 {
-    require_len(payload, 4 + 2)?;
-    if payload[0..4] != LOCK_DATA_MAGIC
+    require_len(payload, LOCK_MAGIC_LEN + 2)?;
+    if payload[0..LOCK_MAGIC_LEN] != LOCK_DATA_MAGIC
     {
         return Err(PayloadError::MagicMismatch);
     }
-    Ok(u16::from_le_bytes([payload[4], payload[5]]))
+    Ok(u16::from_le_bytes([payload[LOCK_MAGIC_LEN], payload[LOCK_MAGIC_LEN + 1]]))
 }
 
 /// Parse the payload of [`CommandOpcode::LockSlot`].
@@ -442,12 +480,12 @@ pub fn parse_lock_data_zone(payload: &[u8]) -> Result<u16, PayloadError>
 ///   `LOCK_SLOT_MAGIC`.
 pub fn parse_lock_slot(payload: &[u8]) -> Result<u8, PayloadError>
 {
-    require_len(payload, 4 + 1)?;
-    if payload[0..4] != LOCK_SLOT_MAGIC
+    require_len(payload, LOCK_MAGIC_LEN + 1)?;
+    if payload[0..LOCK_MAGIC_LEN] != LOCK_SLOT_MAGIC
     {
         return Err(PayloadError::MagicMismatch);
     }
-    Ok(payload[4])
+    Ok(payload[LOCK_MAGIC_LEN])
 }
 
 /// Parse the payload of [`CommandOpcode::WriteConfigZone`].
@@ -478,6 +516,31 @@ pub fn parse_provision_slot(payload: &[u8])
     let mut value = [0u8; 32];
     value.copy_from_slice(&payload[1..=32]);
     Ok((payload[0], value))
+}
+
+/// Parse the payload of [`CommandOpcode::ReadSlotBlock`].
+///
+/// Layout: `slot (1) || block (1)`. Returns the pair.
+///
+/// # Errors
+/// - [`PayloadError::WrongLen`] if the payload is not exactly 2 bytes.
+pub fn parse_read_slot_block(payload: &[u8]) -> Result<(u8, u8), PayloadError>
+{
+    require_len(payload, 2)?;
+    Ok((payload[0], payload[1]))
+}
+
+/// Parse the payload of [`CommandOpcode::ReadSlotWord`].
+///
+/// Layout: `slot (1) || block (1) || offset_words (1)`. Returns the
+/// triple.
+///
+/// # Errors
+/// - [`PayloadError::WrongLen`] if the payload is not exactly 3 bytes.
+pub fn parse_read_slot_word(payload: &[u8]) -> Result<(u8, u8, u8), PayloadError>
+{
+    require_len(payload, 3)?;
+    Ok((payload[0], payload[1], payload[2]))
 }
 
 fn require_len(payload: &[u8], expected: usize) -> Result<(), PayloadError>
@@ -516,7 +579,10 @@ mod tests
             CommandOpcode::UnblockPin,
             CommandOpcode::GetPinStatus,
             CommandOpcode::SetPuk,
+            CommandOpcode::CloseSession,
             CommandOpcode::EmergencyReset,
+            CommandOpcode::ReadSlotBlock,
+            CommandOpcode::ReadSlotWord,
             CommandOpcode::WriteConfigZone,
             CommandOpcode::ProvisionSlot,
             CommandOpcode::ProvisionInitialPin,
@@ -705,5 +771,47 @@ mod tests
         {
             assert_eq!(data[usize::from(i)], 0x10 + i);
         }
+    }
+
+    #[test]
+    fn parse_read_slot_block_extracts_slot_and_block()
+    {
+        let (slot, block) = parse_read_slot_block(&[8, 2]).unwrap();
+        assert_eq!(slot, 8);
+        assert_eq!(block, 2);
+    }
+
+    #[test]
+    fn parse_read_slot_block_rejects_wrong_len()
+    {
+        assert_eq!
+        (
+            parse_read_slot_block(&[5]).unwrap_err(),
+            PayloadError::WrongLen { expected: 2, actual: 1 },
+        );
+        assert_eq!
+        (
+            parse_read_slot_block(&[5, 1, 0]).unwrap_err(),
+            PayloadError::WrongLen { expected: 2, actual: 3 },
+        );
+    }
+
+    #[test]
+    fn parse_read_slot_word_extracts_slot_block_offset()
+    {
+        let (slot, block, offset) = parse_read_slot_word(&[8, 1, 3]).unwrap();
+        assert_eq!(slot, 8);
+        assert_eq!(block, 1);
+        assert_eq!(offset, 3);
+    }
+
+    #[test]
+    fn parse_read_slot_word_rejects_wrong_len()
+    {
+        assert_eq!
+        (
+            parse_read_slot_word(&[5, 1]).unwrap_err(),
+            PayloadError::WrongLen { expected: 3, actual: 2 },
+        );
     }
 }

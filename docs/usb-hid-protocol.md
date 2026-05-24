@@ -49,7 +49,10 @@ truth for opcode values, payload formats, and parsing logic.
 | `0x09` | UnblockPin       | `puk: [u8; 8], new_pin: [u8; 4], io_key: [u8; 32]`            | Resets the PIN. Wrong PUK increments Counter1 by 1.                            |
 | `0x0A` | GetPinStatus     | empty                                                         | Returns retry counters for PIN and PUK, and the "blocked" and "bricked" flags. |
 | `0x0B` | SetPuk           | `old_puk: [u8; 8], new_puk: [u8; 8], io_key: [u8; 32]`        | Requires an active PIN session. Re-verifies `old_puk` on the chip via CheckMac (consumes one Counter1 attempt, refreshed on success). |
+| `0x0C` | CloseSession     | empty                                                         | Terminates the current PIN session immediately. Idempotent: closing an already-closed session succeeds. No chip interaction. |
 | `0x0D` | EmergencyReset   | `magic: [u8; 4] = BA DC 0F FE, io_key: [u8; 32]`              | **Last-chance recovery.** Only succeeds when both PIN and PUK batches are exhausted. Otherwise returns `EmergencyResetNotPermitted` with the actual tries remaining. Destroys user ECC keys, resets PIN to `0000`, generates fresh PUK (returned). No PIN required. |
+| `0x0E` | ReadSlotBlock    | `slot: u8, block: u8`                                         | Reads one 32-byte block of a data slot. The chip enforces slot policy (private ECC slots refuse). No PIN required. Mostly for bring-up diagnostics and reading the IO key before lock. |
+| `0x0F` | ReadSlotWord     | `slot: u8, block: u8, offset_words: u8`                       | Same as `ReadSlotBlock` but returns a 4-byte word. `offset_words` is in 0..=7.                |
 | `0x10` | WriteConfigZone  | `block: u8, data: [u8; 32]`                                   | Writes one 32-byte block of the configuration zone. Host issues 4 times. Reversible only while the config zone is unlocked. |
 | `0x11` | ProvisionSlot    | `slot: u8, value: [u8; 32]`                                   | Writes a 32-byte cleartext value into a data slot. Only accepted for slots 5 (PIN hash), 6 (PUK hash), and 8 (IO key). Only legal while the data zone is unlocked. |
 | `0x12` | ProvisionInitialPin | empty                                                      | Writes `SHA-256("0000" \|\| pin_salt)` into slot 5. The salt is derived on-chip from the chip serial; the host does not need to compute it. Only legal while the data zone is unlocked. |
@@ -95,19 +98,24 @@ These match the `ResponseStatus` enum in
 | `0x0F` | Bricked                  | PUK retries exhausted (Counter1 saturated). PUK feature unavailable. Signing remains possible if the user knows the PIN. |
 | `0x10` | EmergencyResetNotPermitted | `EmergencyReset` was attempted while the user still has PIN or PUK attempts. Payload: `[pin_tries_remaining, puk_tries_remaining]`. |
 
-## Reserved opcode space
+## Opcode ranges
 
-The following opcodes are reserved for forthcoming commands. They are
-not yet implemented. The host CLI rejects them: the firmware returns
-`InvalidCommand` (`0x01`).
+The opcode space is organised in three contiguous blocks. The current
+allocation:
 
-| Code   | Reserved name | Intended payload                                                | Status                                                                  |
-|--------|---------------|-----------------------------------------------------------------|-------------------------------------------------------------------------|
-| `0x0B` | SetPuk        | `old: [u8; 8], new: [u8; 8], io_key: [u8; 32]`                  | Implemented.                                                            |
-| `0x0D` | EmergencyReset | `magic: [u8; 4] = BA DC 0F FE, io_key: [u8; 32]`               | Implemented. Last-chance recovery for "PIN + PUK both lost AND both batches exhausted". Firmware refuses with `EmergencyResetNotPermitted` if either batch still has attempts. User loses ECC private keys. |
+- `0x01..=0x0F` — **Runtime operations.** Read-only inspection, signing,
+  PIN/PUK session management, and last-chance recovery. Safe to call at
+  any point after the chip has been provisioned and both zones locked.
+- `0x10..=0x1F` — **Provisioning operations.** Only effective while the
+  relevant zone is unlocked. Sequenced once at the chip's first boot
+  and never again in normal operation. The firmware accepts them at
+  any time; the chip is the actual gate (it returns an error after lock).
+- `0xF0..=0xFF` — **Destructive / irreversible operations** (zone and
+  slot locks). Protected by per-opcode magic words and, on the host
+  side, by interactive double-confirmation prompts.
 
-The opcode space below `0xF0` is for routine commands; `0xF0` and above
-are reserved for the small family of permanent / irreversible commands.
+Unassigned opcodes inside each range are available for future use. The
+firmware returns `InvalidCommand` (`0x01`) for any unknown opcode.
 
 ## Sample exchanges
 

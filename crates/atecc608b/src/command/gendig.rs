@@ -71,7 +71,7 @@ impl GenDigZone
     }
 }
 
-impl<'a, H> AteccChannel<'a, H>
+impl<H> AteccChannel<'_, H>
 where
     H: AteccHal,
 {

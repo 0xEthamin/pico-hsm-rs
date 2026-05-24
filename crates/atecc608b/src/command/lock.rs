@@ -85,7 +85,7 @@ const LOCK_MODE_DATA_ZONE_VERIFY_CRC: u8 = 0b0000_0001;
 /// Mode bits for an individual slot lock, no CRC verification.
 const LOCK_MODE_SLOT_NO_CRC_BASE: u8 = 0b1000_0010;
 
-impl<'a, H: AteccHal> AteccChannel<'a, H>
+impl<H: AteccHal> AteccChannel<'_, H>
 {
     /// Permanently lock the configuration zone.
     ///

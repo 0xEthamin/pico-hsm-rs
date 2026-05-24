@@ -15,9 +15,10 @@
 
 //! LED animation task.
 //!
-//! Reads the current [`TokenState`] off [`crate::channels::TOKEN_STATE`] and
-//! drives the green (GP16) and yellow (GP17) LEDs at the cadence dictated
-//! by the state's [`LedPattern`].
+//! Reads the current [`hsm_firmware_logic::TokenState`] off
+//! [`crate::channels::TOKEN_STATE`] and drives the green (GP16) and yellow
+//! (GP17) LEDs at the cadence dictated by the state's
+//! [`hsm_firmware_logic::LedPattern`].
 //!
 //! The task runs an infinite loop with two interleaved concerns:
 //!
@@ -30,16 +31,22 @@
 //!    [`crate::channels::TOKEN_STATE`] using `embassy_futures::select`.
 //!    Whichever fires first wins.
 //!
-//! Active-high LEDs assumed: `set_high` lights up, `set_low` turns off.
+//! # Testability
+//!
+//! The actual driving logic lives in [`apply_pattern`], which is generic
+//! over the [`Led`] trait. The embassy task wrapper
+//! [`animation_task`] is a thin shell that supplies real `Output<'static>`
+//! values; host-side tests instantiate `apply_pattern` directly with
+//! mock LEDs to assert on transition counts.
 
 use defmt::info;
 use embassy_futures::select::{select, Either};
-use embassy_rp::gpio::Output;
 use embassy_time::{Duration, Timer};
 
-use hsm_firmware_logic::LedPattern;
+use hsm_firmware_logic::{Led, LedPattern};
 
 use crate::channels::TOKEN_STATE;
+use crate::hal_rp2040::Rp2040Led;
 
 /// Tick interval for the slow pulse pattern (green, 1 Hz).
 const SLOW_PULSE_INTERVAL: Duration = Duration::from_millis(500);
@@ -59,8 +66,8 @@ const ALTERNATE_INTERVAL: Duration = Duration::from_millis(100);
 #[embassy_executor::task]
 pub(crate) async fn animation_task
 (
-    mut led_green: Output<'static>,
-    mut led_yellow: Output<'static>,
+    mut led_green: Rp2040Led,
+    mut led_yellow: Rp2040Led,
 ) -> !
 {
     // Wait for the first state publication. The state task always emits
@@ -73,7 +80,7 @@ pub(crate) async fn animation_task
 
     loop
     {
-        // Apply the current pattern.
+        // Apply the current pattern via the generic helper.
         let interval = apply_pattern
         (
             state.led_pattern(),
@@ -107,88 +114,149 @@ pub(crate) async fn animation_task
 ///
 /// `tick_high` alternates `false`/`true` each iteration. For static
 /// patterns (solid, all-off) the value is ignored.
-fn apply_pattern
+///
+/// Generic over [`Led`] so the firmware task and host-side unit tests
+/// can share the same code path.
+pub(crate) fn apply_pattern<G, Y>
 (
     pattern: LedPattern,
     tick_high: bool,
-    led_green: &mut Output<'static>,
-    led_yellow: &mut Output<'static>,
+    led_green: &mut G,
+    led_yellow: &mut Y,
 ) -> Duration
+where
+    G: Led,
+    Y: Led,
 {
     match pattern
     {
         LedPattern::AllOff =>
         {
-            led_green.set_low();
-            led_yellow.set_low();
+            led_green.off();
+            led_yellow.off();
             // No animation: long wait, the select will wake us on the
             // next state change.
             Duration::from_secs(60)
         }
         LedPattern::GreenSolid =>
         {
-            led_green.set_high();
-            led_yellow.set_low();
+            led_green.on();
+            led_yellow.off();
             Duration::from_secs(60)
         }
         LedPattern::GreenSlowPulse =>
         {
-            led_yellow.set_low();
-            if tick_high
-            {
-                led_green.set_high();
-            }
-            else
-            {
-                led_green.set_low();
-            }
+            led_yellow.off();
+            led_green.set(tick_high);
             SLOW_PULSE_INTERVAL
         }
         LedPattern::GreenFastBlink =>
         {
-            led_yellow.set_low();
-            if tick_high
-            {
-                led_green.set_high();
-            }
-            else
-            {
-                led_green.set_low();
-            }
+            led_yellow.off();
+            led_green.set(tick_high);
             FAST_BLINK_INTERVAL
         }
         LedPattern::YellowSolid =>
         {
-            led_green.set_low();
-            led_yellow.set_high();
+            led_green.off();
+            led_yellow.on();
             Duration::from_secs(60)
         }
         LedPattern::YellowBlink =>
         {
-            led_green.set_low();
-            if tick_high
-            {
-                led_yellow.set_high();
-            }
-            else
-            {
-                led_yellow.set_low();
-            }
+            led_green.off();
+            led_yellow.set(tick_high);
             YELLOW_BLINK_INTERVAL
         }
         LedPattern::AlternateBoth =>
         {
-            if tick_high
-            {
-                led_green.set_high();
-                led_yellow.set_low();
-            }
-            else
-            {
-                led_green.set_low();
-                led_yellow.set_high();
-            }
+            led_green.set(tick_high);
+            led_yellow.set(!tick_high);
             ALTERNATE_INTERVAL
         }
+    }
+}
+
+#[cfg(test)]
+mod tests
+{
+    use super::*;
+
+    /// Minimal mock LED that just tracks state and transitions.
+    /// Mirrors the one in `hsm_firmware_logic::io::test_mocks` but lives
+    /// here so this crate can test `apply_pattern` without exposing a
+    /// `pub(crate)` mock across crates.
+    #[derive(Debug, Default)]
+    struct MockLed
+    {
+        state:       bool,
+        transitions: u32,
+    }
+
+    impl Led for MockLed
+    {
+        fn on(&mut self)
+        {
+            if !self.state
+            {
+                self.transitions += 1;
+            }
+            self.state = true;
+        }
+
+        fn off(&mut self)
+        {
+            if self.state
+            {
+                self.transitions += 1;
+            }
+            self.state = false;
+        }
+    }
+
+    #[test]
+    fn green_solid_lights_green_and_kills_yellow()
+    {
+        let mut green = MockLed::default();
+        let mut yellow = MockLed::default();
+        green.off();
+        yellow.on();
+        let _ = apply_pattern(LedPattern::GreenSolid, false, &mut green, &mut yellow);
+        assert!(green.state);
+        assert!(!yellow.state);
+    }
+
+    #[test]
+    fn alternate_both_swaps_each_tick()
+    {
+        let mut green = MockLed::default();
+        let mut yellow = MockLed::default();
+        let _ = apply_pattern(LedPattern::AlternateBoth, true, &mut green, &mut yellow);
+        assert!(green.state);
+        assert!(!yellow.state);
+        let _ = apply_pattern(LedPattern::AlternateBoth, false, &mut green, &mut yellow);
+        assert!(!green.state);
+        assert!(yellow.state);
+    }
+
+    #[test]
+    fn all_off_clears_both()
+    {
+        let mut green = MockLed::default();
+        let mut yellow = MockLed::default();
+        green.on();
+        yellow.on();
+        let _ = apply_pattern(LedPattern::AllOff, true, &mut green, &mut yellow);
+        assert!(!green.state);
+        assert!(!yellow.state);
+    }
+
+    #[test]
+    fn green_slow_pulse_returns_500ms_interval()
+    {
+        let mut green = MockLed::default();
+        let mut yellow = MockLed::default();
+        let d = apply_pattern(LedPattern::GreenSlowPulse, true, &mut green, &mut yellow);
+        assert_eq!(d, SLOW_PULSE_INTERVAL);
     }
 }

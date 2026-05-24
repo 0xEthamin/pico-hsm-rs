@@ -176,7 +176,7 @@ const fn write_param1(zone: Zone, is_32_bytes: bool, encrypted: bool) -> u8
     p1
 }
 
-impl<'a, H> AteccChannel<'a, H>
+impl<H> AteccChannel<'_, H>
 where
     H: AteccHal,
 {
@@ -186,8 +186,8 @@ where
     /// generally build it with [`config_or_otp_address`] or [`data_address`].
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`]. In particular, reads of locked or
-    /// permission-restricted regions surface as [`AteccError::Chip`] with
+    /// See [`AteccChannel::execute_command`]. In particular, reads of locked
+    /// or permission-restricted regions surface as [`AteccError::Chip`] with
     /// the relevant status byte.
     pub(crate) async fn read_4
     (
@@ -280,8 +280,8 @@ where
     /// layout for the data zone.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`].
-    pub(crate) async fn read_slot_word
+    /// See [`AteccChannel::execute_command`].
+    pub async fn read_slot_word
     (
         &mut self,
         slot: Slot,
@@ -295,8 +295,8 @@ where
     /// Read a 32-byte block from a data slot.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`].
-    pub(crate) async fn read_slot_block
+    /// See [`AteccChannel::execute_command`].
+    pub async fn read_slot_block
     (
         &mut self,
         slot: Slot,

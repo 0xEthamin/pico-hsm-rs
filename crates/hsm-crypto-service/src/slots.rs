@@ -49,16 +49,8 @@
 
 use atecc608b::Slot;
 
-/// Primary identity slot. Used for the daily sign challenge / response.
-pub(crate) const SLOT_PRIMARY: Slot = Slot::const_new(0);
-/// First reserve slot for key rotation.
-pub(crate) const SLOT_RESERVE_1: Slot = Slot::const_new(1);
-/// Second reserve slot.
-pub(crate) const SLOT_RESERVE_2: Slot = Slot::const_new(2);
-/// Third reserve slot.
-pub(crate) const SLOT_RESERVE_3: Slot = Slot::const_new(3);
-/// Fourth reserve slot.
-pub(crate) const SLOT_RESERVE_4: Slot = Slot::const_new(4);
+use crate::pin::PIN_LEN;
+
 /// Slot holding the SHA-256 hash of the PIN.
 pub(crate) const SLOT_PIN_HASH: Slot = Slot::const_new(5);
 /// Slot holding the SHA-256 hash of the PUK.
@@ -78,11 +70,5 @@ pub(crate) const PIN_MAX_RETRIES: u8 = 5;
 /// [`PIN_MAX_RETRIES`].
 pub(crate) const PUK_MAX_RETRIES: u8 = 10;
 
-/// PIN length in digits.
-pub(crate) const PIN_LENGTH: usize = 4;
-
-/// PUK length in digits.
-pub(crate) const PUK_LENGTH: usize = 8;
-
 /// Default PIN at factory provisioning. Must be changed on first use.
-pub(crate) const PIN_DEFAULT: [u8; PIN_LENGTH] = *b"0000";
+pub(crate) const PIN_DEFAULT: [u8; PIN_LEN] = *b"0000";

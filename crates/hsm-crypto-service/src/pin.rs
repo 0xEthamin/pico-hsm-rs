@@ -127,7 +127,7 @@ pub(crate) fn puk_salt(chip_serial: &[u8; 9]) -> [u8; HASH_LEN]
 
 /// Compute `SHA-256(pin || pin_salt)`. This is the value stored in slot 5.
 #[must_use]
-pub(crate) fn pin_hash(pin: &[u8; PIN_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
+pub(crate) fn pin_hash(pin: [u8; PIN_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
 {
     let mut hasher = Sha256::new();
     hasher.update(pin);
@@ -139,7 +139,7 @@ pub(crate) fn pin_hash(pin: &[u8; PIN_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_
 
 /// Compute `SHA-256(puk || puk_salt)`. This is the value stored in slot 6.
 #[must_use]
-pub(crate) fn puk_hash(puk: &[u8; PUK_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
+pub(crate) fn puk_hash(puk: [u8; PUK_LEN], salt: &[u8; HASH_LEN]) -> [u8; HASH_LEN]
 {
     let mut hasher = Sha256::new();
     hasher.update(puk);
@@ -276,14 +276,14 @@ mod tests
     {
         let pin = *b"0000";
         let salt = [0u8; HASH_LEN];
-        assert_eq!(pin_hash(&pin, &salt), pin_hash(&pin, &salt));
+        assert_eq!(pin_hash(pin, &salt), pin_hash(pin, &salt));
     }
 
     #[test]
     fn pin_hash_changes_with_pin()
     {
         let salt = [0u8; HASH_LEN];
-        assert_ne!(pin_hash(b"0000", &salt), pin_hash(b"1234", &salt));
+        assert_ne!(pin_hash(*b"0000", &salt), pin_hash(*b"1234", &salt));
     }
 
     #[test]
@@ -292,7 +292,7 @@ mod tests
         let pin = *b"0000";
         let salt1 = [0u8; HASH_LEN];
         let salt2 = [1u8; HASH_LEN];
-        assert_ne!(pin_hash(&pin, &salt1), pin_hash(&pin, &salt2));
+        assert_ne!(pin_hash(pin, &salt1), pin_hash(pin, &salt2));
     }
 
     #[test]

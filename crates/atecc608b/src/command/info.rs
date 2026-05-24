@@ -29,26 +29,21 @@ use crate::opcodes::{EXEC_TIME_INFO_MS, OP_INFO};
 
 /// `Info` mode bytes (Param1).
 ///
+/// Only the `Revision` mode is implemented because it is the only one
+/// this project consumes. The chip supports four other modes (`KeyValid`,
+/// `State`, `Gpio`, `VolatileKeyPermission`); they can be added if a
+/// concrete need arises.
+///
 /// Source: `CryptoAuthLib` `lib/calib/calib_command.h`, `INFO_MODE_*` constants.
 #[repr(u8)]
-#[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum InfoMode
 {
     /// Return the silicon revision (4 bytes).
-    Revision      = 0x00,
-    /// Return the key valid bit for a slot.
-    KeyValid      = 0x01,
-    /// Return general device state (zero / not-zero, lock state, etc.).
-    State         = 0x02,
-    /// Return the GPIO state byte. Only meaningful when the chip's optional
-    /// GPIO pin is enabled.
-    Gpio          = 0x03,
-    /// Return the persistent latch state.
-    VolatileKeyPermission = 0x04,
+    Revision = 0x00,
 }
 
-impl<'a, H> AteccChannel<'a, H>
+impl<H> AteccChannel<'_, H>
 where
     H: AteccHal,
 {
@@ -69,38 +64,6 @@ where
             (
                 OP_INFO,
                 InfoMode::Revision as u8,
-                0x0000,
-                &[],
-                EXEC_TIME_INFO_MS,
-                &mut response_buf,
-            )
-            .await?;
-
-        if payload.len() != 4
-        {
-            return Err(AteccError::MalformedResponse);
-        }
-
-        let mut out = [0u8; 4];
-        out.copy_from_slice(payload);
-        Ok(out)
-    }
-
-    /// Read the State byte from the chip.
-    ///
-    /// Returns the raw 4-byte response. Only the low byte conveys
-    /// information (lock and config status bits). The other three bytes are
-    /// reserved.
-    ///
-    /// # Errors
-    /// See [`Atecc::execute_command`].
-    pub(crate) async fn info_state(&mut self) -> Result<[u8; 4], AteccError<H::Error>>
-    {
-        let mut response_buf = [0u8; 7];
-        let payload = self
-            .execute_command(
-                OP_INFO,
-                InfoMode::State as u8,
                 0x0000,
                 &[],
                 EXEC_TIME_INFO_MS,

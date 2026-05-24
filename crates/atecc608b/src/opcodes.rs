@@ -32,8 +32,6 @@ pub(crate) const I2C_ADDRESS: u8 = 0x60;
 
 // Word addresses (first byte of every I2C transaction)
 
-/// Word address sent before reading the response.
-pub(crate) const WORD_ADDRESS_RESET: u8 = 0x00;
 /// Word address that puts the chip into deep sleep (clears volatile state).
 pub(crate) const WORD_ADDRESS_SLEEP: u8 = 0x01;
 /// Word address that puts the chip in idle (keeps `TempKey`, drops the watchdog).

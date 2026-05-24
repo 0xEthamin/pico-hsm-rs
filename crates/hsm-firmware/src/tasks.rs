@@ -50,8 +50,8 @@ use hsm_firmware_logic::{Event, TOUCH_TIMEOUT_MS};
 use hsm_usb_protocol::commands::
 {
     parse_emergency_reset, parse_lock_config_zone, parse_lock_data_zone, parse_lock_slot,
-    parse_provision_slot, parse_set_pin, parse_set_puk,
-    parse_sign, parse_slot_only, parse_unblock_pin, parse_verify_pin,
+    parse_provision_slot, parse_read_slot_block, parse_read_slot_word, parse_set_pin,
+    parse_set_puk, parse_sign, parse_slot_only, parse_unblock_pin, parse_verify_pin,
     parse_write_config_zone, CommandOpcode,
 };
 use hsm_usb_protocol::responses::ResponseStatus;
@@ -159,9 +159,18 @@ where
         CommandOpcode::UnblockPin => handle_unblock_pin(service, frame.payload, tx_buf).await,
         CommandOpcode::GetPinStatus => handle_get_pin_status(service, tx_buf).await,
         CommandOpcode::SetPuk => handle_set_puk(service, frame.payload, tx_buf).await,
+        CommandOpcode::CloseSession => handle_close_session(service, tx_buf),
         CommandOpcode::EmergencyReset =>
         {
             handle_emergency_reset(service, frame.payload, tx_buf).await
+        }
+        CommandOpcode::ReadSlotBlock =>
+        {
+            handle_read_slot_block(service, frame.payload, tx_buf).await
+        }
+        CommandOpcode::ReadSlotWord =>
+        {
+            handle_read_slot_word(service, frame.payload, tx_buf).await
         }
         CommandOpcode::ReadConfigSlot =>
         {
@@ -753,6 +762,78 @@ where
     match service.emergency_reset(&io_key).await
     {
         Ok(new_puk) => write_status(tx_buf, ResponseStatus::Ok, &new_puk),
+        Err(err) => write_error(tx_buf, &err),
+    }
+}
+
+/// Synchronous handler: closes the PIN session in the host-side state
+/// only, no chip interaction. Always succeeds (idempotent).
+fn handle_close_session<H, C>
+(
+    service: &mut CryptoService<H, C>,
+    tx_buf: &mut [u8],
+) -> usize
+where
+    H: AteccHal,
+    C: Clock,
+    H::Error: core::fmt::Debug,
+{
+    service.close_session();
+    write_status(tx_buf, ResponseStatus::Ok, &[])
+}
+
+async fn handle_read_slot_block<H, C>
+(
+    service: &mut CryptoService<H, C>,
+    payload: &[u8],
+    tx_buf: &mut [u8],
+) -> usize
+where
+    H: AteccHal,
+    C: Clock,
+    H::Error: core::fmt::Debug,
+{
+    let (slot_idx, block) = match parse_read_slot_block(payload)
+    {
+        Ok(v) => v,
+        Err(_) => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
+    };
+    let slot = match Slot::new(slot_idx)
+    {
+        Some(s) => s,
+        None => return write_status(tx_buf, ResponseStatus::InvalidSlot, &[]),
+    };
+    match service.read_slot_block(slot, block).await
+    {
+        Ok(data) => write_status(tx_buf, ResponseStatus::Ok, &data),
+        Err(err) => write_error(tx_buf, &err),
+    }
+}
+
+async fn handle_read_slot_word<H, C>
+(
+    service: &mut CryptoService<H, C>,
+    payload: &[u8],
+    tx_buf: &mut [u8],
+) -> usize
+where
+    H: AteccHal,
+    C: Clock,
+    H::Error: core::fmt::Debug,
+{
+    let (slot_idx, block, offset) = match parse_read_slot_word(payload)
+    {
+        Ok(v) => v,
+        Err(_) => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
+    };
+    let slot = match Slot::new(slot_idx)
+    {
+        Some(s) => s,
+        None => return write_status(tx_buf, ResponseStatus::InvalidSlot, &[]),
+    };
+    match service.read_slot_word(slot, block, offset).await
+    {
+        Ok(data) => write_status(tx_buf, ResponseStatus::Ok, &data),
         Err(err) => write_error(tx_buf, &err),
     }
 }

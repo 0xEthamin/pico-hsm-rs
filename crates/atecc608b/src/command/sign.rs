@@ -47,7 +47,7 @@ pub const SIGNATURE_SIZE: usize = 64;
 /// `TempKey`).
 const SIGN_MODE_EXTERNAL: u8 = 0x80;
 
-impl<'a, H> AteccChannel<'a, H>
+impl<H> AteccChannel<'_, H>
 where
     H: AteccHal,
 {

@@ -34,5 +34,4 @@ pub(crate) mod slots;
 
 pub use error::CryptoServiceError;
 pub use service::CryptoService;
-pub(crate) use service::{DeviceInfo, PinStatus, PublicKey, ServiceResult, Signature};
 pub use session::{Clock, Session, SESSION_TIMEOUT_MS};

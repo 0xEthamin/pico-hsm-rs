@@ -70,6 +70,32 @@ enum Command
         slot: u8,
     },
 
+    /// Read one 32-byte block of a data slot. The chip enforces the
+    /// slot's read policy (private ECC slots refuse reads). Mostly
+    /// useful for bring-up diagnostics and to verify what
+    /// `ProvisionSlot` wrote before locking the data zone.
+    ReadSlotBlock
+    {
+        #[arg(long)]
+        slot:  u8,
+        /// Block index inside the slot (slot-size dependent).
+        #[arg(long, default_value_t = 0)]
+        block: u8,
+    },
+
+    /// Read one 4-byte word of a data slot.
+    ReadSlotWord
+    {
+        #[arg(long)]
+        slot:   u8,
+        /// Block index inside the slot.
+        #[arg(long, default_value_t = 0)]
+        block:  u8,
+        /// Word offset inside the block (`0..=7`).
+        #[arg(long, default_value_t = 0)]
+        offset: u8,
+    },
+
     /// Write the writable bytes of the config zone (provisioning).
     /// Reversible while the zone is unlocked.
     WriteConfig
@@ -178,6 +204,12 @@ enum Command
         io_key: String,
     },
 
+    /// Close the active PIN session immediately. Idempotent: succeeds
+    /// even if no session is open. Use this to lock the dongle
+    /// proactively after a signing burst instead of waiting for the
+    /// 30 s inactivity timeout.
+    CloseSession,
+
     /// **LAST-CHANCE RECOVERY.** Only usable when both the PIN and the
     /// PUK batches are exhausted (i.e. the user has forgotten both and
     /// tried until they hit zero attempts on both). Destroys every
@@ -238,6 +270,8 @@ fn main() -> Result<()>
         Command::Info => cmd_info(),
         Command::ReadConfig => cmd_read_config(),
         Command::ReadConfigSlot { slot } => cmd_read_config_slot(slot),
+        Command::ReadSlotBlock { slot, block } => cmd_read_slot_block(slot, block),
+        Command::ReadSlotWord { slot, block, offset } => cmd_read_slot_word(slot, block, offset),
         Command::WriteConfig { path } => cmd_write_config(&path),
         Command::ProvisionSlot { slot, value } => cmd_provision_slot(slot, &value),
         Command::ProvisionToken { secrets_file } => cmd_provision_token(&secrets_file),
@@ -251,6 +285,7 @@ fn main() -> Result<()>
             cmd_unblock_pin(&puk, &new_pin, &io_key)
         }
         Command::SetPuk { old, new, io_key } => cmd_set_puk(&old, &new, &io_key),
+        Command::CloseSession => cmd_close_session(),
         Command::EmergencyResetDangerous { io_key } =>
         {
             cmd_emergency_reset_dangerous(&io_key)
@@ -371,6 +406,66 @@ fn cmd_read_config_slot(slot: u8) -> Result<()>
         format_args!("{:08b}", payload[3]),
         format_args!("{:08b}", payload[2]),
     );
+    Ok(())
+}
+
+fn cmd_read_slot_block(slot: u8, block: u8) -> Result<()>
+{
+    let device = device::open()?;
+    let payload = device::send_command
+    (
+        &device,
+        CommandOpcode::ReadSlotBlock.as_u8(),
+        &[slot, block],
+    )?;
+    if payload.len() != 32
+    {
+        bail!("unexpected ReadSlotBlock payload length: {}", payload.len());
+    }
+    println!("Slot {slot} block {block} (32 bytes):");
+    for (i, chunk) in payload.chunks(16).enumerate()
+    {
+        print!("  {:02}:  ", i * 16);
+        for b in chunk
+        {
+            print!("{b:02X} ");
+        }
+        println!();
+    }
+    Ok(())
+}
+
+fn cmd_read_slot_word(slot: u8, block: u8, offset: u8) -> Result<()>
+{
+    let device = device::open()?;
+    let payload = device::send_command
+    (
+        &device,
+        CommandOpcode::ReadSlotWord.as_u8(),
+        &[slot, block, offset],
+    )?;
+    if payload.len() != 4
+    {
+        bail!("unexpected ReadSlotWord payload length: {}", payload.len());
+    }
+    println!
+    (
+        "Slot {slot} block {block} word {offset}: {:02X} {:02X} {:02X} {:02X}",
+        payload[0], payload[1], payload[2], payload[3],
+    );
+    Ok(())
+}
+
+fn cmd_close_session() -> Result<()>
+{
+    let device = device::open()?;
+    device::send_command
+    (
+        &device,
+        CommandOpcode::CloseSession.as_u8(),
+        &[],
+    )?;
+    println!("Session closed.");
     Ok(())
 }
 

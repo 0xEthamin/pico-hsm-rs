@@ -64,7 +64,7 @@ pub const PRIVWRITE_CLEARTEXT_SIZE: usize = 36;
 /// `param1` mode for cleartext `PrivWrite` (data zone unlocked only).
 const PRIVWRITE_MODE_CLEARTEXT: u8 = 0x00;
 
-impl<'a, H> AteccChannel<'a, H>
+impl<H> AteccChannel<'_, H>
 where
     H: AteccHal,
 {

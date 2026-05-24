@@ -73,7 +73,7 @@ pub const CHECKMAC_DATA_SIZE: usize =
 /// the slot identified by `param2`.
 const CHECKMAC_MODE_CHALLENGE: u8 = 0x00;
 
-impl<'a, H> AteccChannel<'a, H>
+impl<H> AteccChannel<'_, H>
 where
     H: AteccHal,
 {

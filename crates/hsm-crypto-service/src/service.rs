@@ -31,11 +31,11 @@
 //! - For a single-shot chip command (e.g. read one counter), the method
 //!   opens a channel, runs the command, closes the channel.
 //! - For a multi-step chip workflow that **shares volatile state**
-//!   (Nonce + Sign, Nonce + GenDig + Write), the method opens **one**
+//!   (Nonce + Sign, Nonce + `GenDig` + Write), the method opens **one**
 //!   channel that spans the whole sequence, so `TempKey` stays alive
 //!   across the steps.
 //! - For workflows that combine several independent chip commands
-//!   (e.g. read counter, then CheckMac, then read counter again), the
+//!   (e.g. read counter, then `CheckMac`, then read counter again), the
 //!   method may either keep one channel open for the whole flow or open
 //!   one per command. The choice is documented per method when it
 //!   matters; the default is to open one per logical step for clarity.
@@ -64,8 +64,7 @@ use crate::pin::
 use crate::session::{Clock, Session};
 use crate::slots::
 {
-    PIN_DEFAULT, PIN_MAX_RETRIES, PUK_MAX_RETRIES, SLOT_IO_KEY, SLOT_PIN_HASH, SLOT_PRIMARY,
-    SLOT_PUK_HASH,
+    PIN_DEFAULT, PIN_MAX_RETRIES, PUK_MAX_RETRIES, SLOT_IO_KEY, SLOT_PIN_HASH, SLOT_PUK_HASH,
 };
 
 /// Convenience alias for the service's result type.
@@ -137,12 +136,6 @@ where
             session: Session::new(),
             serial:  None,
         }
-    }
-
-    /// Consume the service and return the underlying driver and clock.
-    pub(crate) fn into_parts(self) -> (Atecc<H>, C)
-    {
-        (self.atecc, self.clock)
     }
 
     /// Return chip revision, serial, and provisioning state.
@@ -343,7 +336,7 @@ where
 
         let serial = self.cached_serial().await?;
         let salt = pin_salt(&serial);
-        let computed_pin_hash = pin_hash(pin, &salt);
+        let computed_pin_hash = pin_hash(*pin, &salt);
 
         let ok = self
             .checkmac_with_hash(SLOT_PIN_HASH, &computed_pin_hash, &serial)
@@ -402,7 +395,7 @@ where
 
         let serial = self.cached_serial().await?;
         let salt = puk_salt(&serial);
-        let computed_puk_hash = puk_hash(puk, &salt);
+        let computed_puk_hash = puk_hash(*puk, &salt);
 
         let ok = self
             .checkmac_with_hash(SLOT_PUK_HASH, &computed_puk_hash, &serial)
@@ -416,7 +409,7 @@ where
         }
 
         // PUK was correct. Compute the new PIN hash and rewrite slot 5.
-        let new_pin_hash = pin_hash(new_pin, &pin_salt(&serial));
+        let new_pin_hash = pin_hash(*new_pin, &pin_salt(&serial));
         self.write_slot_encrypted(SLOT_PIN_HASH, &new_pin_hash, io_key, &serial)
             .await?;
 
@@ -468,7 +461,7 @@ where
         }
 
         let serial = self.cached_serial().await?;
-        let old_pin_hash = pin_hash(old_pin, &pin_salt(&serial));
+        let old_pin_hash = pin_hash(*old_pin, &pin_salt(&serial));
 
         let ok = self
             .checkmac_with_hash(SLOT_PIN_HASH, &old_pin_hash, &serial)
@@ -480,7 +473,7 @@ where
             return Err(CryptoServiceError::PinIncorrect { tries_remaining: remaining });
         }
 
-        let new_pin_hash = pin_hash(new_pin, &pin_salt(&serial));
+        let new_pin_hash = pin_hash(*new_pin, &pin_salt(&serial));
         self.write_slot_encrypted(SLOT_PIN_HASH, &new_pin_hash, io_key, &serial)
             .await?;
 
@@ -528,7 +521,7 @@ where
 
         // Step 3: verify the current PUK via CheckMac on slot 6.
         let serial = self.cached_serial().await?;
-        let old_puk_hash = puk_hash(old_puk, &puk_salt(&serial));
+        let old_puk_hash = puk_hash(*old_puk, &puk_salt(&serial));
         let ok = self
             .checkmac_with_hash(SLOT_PUK_HASH, &old_puk_hash, &serial)
             .await?;
@@ -542,7 +535,7 @@ where
         }
 
         // Step 4: write the new PUK hash.
-        let new_puk_hash = puk_hash(new_puk, &puk_salt(&serial));
+        let new_puk_hash = puk_hash(*new_puk, &puk_salt(&serial));
         self.write_slot_encrypted(SLOT_PUK_HASH, &new_puk_hash, io_key, &serial)
             .await?;
 
@@ -646,12 +639,12 @@ where
 
         // Step 3: generate a fresh PUK, write its hash, refresh Counter1.
         let new_puk = self.generate_random_puk().await?;
-        let new_puk_hash = puk_hash(&new_puk, &puk_salt(&serial));
+        let new_puk_hash = puk_hash(new_puk, &puk_salt(&serial));
         self.write_slot_encrypted(SLOT_PUK_HASH, &new_puk_hash, io_key, &serial).await?;
         self.refresh_counter_batch(CounterId::Counter1, PUK_MAX_RETRIES).await?;
 
         // Step 4: reset PIN to default, refresh Counter0.
-        let default_hash = pin_hash(&PIN_DEFAULT, &pin_salt(&serial));
+        let default_hash = pin_hash(PIN_DEFAULT, &pin_salt(&serial));
         self.write_slot_encrypted(SLOT_PIN_HASH, &default_hash, io_key, &serial).await?;
         self.refresh_counter_batch(CounterId::Counter0, PIN_MAX_RETRIES).await?;
 
@@ -836,7 +829,7 @@ where
     {
         let serial = self.cached_serial().await?;
         let new_puk = self.generate_random_puk().await?;
-        let new_puk_hash = puk_hash(&new_puk, &puk_salt(&serial));
+        let new_puk_hash = puk_hash(new_puk, &puk_salt(&serial));
         self.provision_slot(SLOT_PUK_HASH, &new_puk_hash).await?;
         Ok(new_puk)
     }
@@ -852,7 +845,7 @@ where
     ) -> ServiceResult<(), H::Error>
     {
         let serial = self.cached_serial().await?;
-        let hash = pin_hash(&PIN_DEFAULT, &pin_salt(&serial));
+        let hash = pin_hash(PIN_DEFAULT, &pin_salt(&serial));
         self.provision_slot(SLOT_PIN_HASH, &hash).await?;
         Ok(())
     }
@@ -930,21 +923,6 @@ where
         Ok(signature)
     }
 
-    /// Sign with the default identity slot (slot 0).
-    ///
-    /// Convenience wrapper around [`Self::sign`].
-    ///
-    /// # Errors
-    /// See [`Self::sign`].
-    pub(crate) async fn sign_primary
-    (
-        &mut self,
-        digest: &[u8; 32],
-    ) -> ServiceResult<Signature, H::Error>
-    {
-        self.sign(SLOT_PRIMARY, digest).await
-    }
-
     /// Report the current PIN / PUK retry counters and session state.
     ///
     /// Reads both counters within a single chip channel for efficiency.
@@ -969,10 +947,61 @@ where
         })
     }
 
-    /// Force-close the PIN session.
-    pub(crate) fn close_session(&mut self)
+    /// Terminate the active PIN session immediately, without waiting for
+    /// the 30 s inactivity timeout.
+    ///
+    /// Idempotent: closing an already-closed session is a no-op. Useful
+    /// when the user wants to lock the dongle proactively after a
+    /// signing burst, instead of letting the timeout expire.
+    pub fn close_session(&mut self)
     {
         self.session.close();
+    }
+
+    /// Read one 32-byte block from a data slot.
+    ///
+    /// Used by `CommandOpcode::ReadSlotBlock` for bring-up diagnostics
+    /// (verifying what `ProvisionSlot` wrote) and to inspect the IO key
+    /// in slot 8 before locking the data zone.
+    ///
+    /// No PIN session check here: the chip itself enforces slot policy.
+    /// A slot configured `IsSecret` or with `EncryptRead` returns a chip
+    /// error, which surfaces here as [`CryptoServiceError::Atecc`].
+    ///
+    /// # Errors
+    /// - [`CryptoServiceError::Atecc`] on chip-level errors (forbidden
+    ///   read, bad address, etc).
+    pub async fn read_slot_block
+    (
+        &mut self,
+        slot: Slot,
+        block: u8,
+    ) -> ServiceResult<[u8; 32], H::Error>
+    {
+        let mut channel = self.atecc.open_channel().await?;
+        let data = channel.read_slot_block(slot, block).await?;
+        channel.close().await?;
+        Ok(data)
+    }
+
+    /// Read one 4-byte word from a data slot.
+    ///
+    /// See [`Self::read_slot_block`] for context. Same policy enforcement.
+    ///
+    /// # Errors
+    /// - [`CryptoServiceError::Atecc`] on chip-level errors.
+    pub async fn read_slot_word
+    (
+        &mut self,
+        slot: Slot,
+        block: u8,
+        offset_words: u8,
+    ) -> ServiceResult<[u8; 4], H::Error>
+    {
+        let mut channel = self.atecc.open_channel().await?;
+        let data = channel.read_slot_word(slot, block, offset_words).await?;
+        channel.close().await?;
+        Ok(data)
     }
 
     // -------------------------------------------------------------------
@@ -1037,7 +1066,7 @@ where
     /// Issue a `CheckMac` against `slot` with the host-computed hash that
     /// should match its content, and return whether the chip confirmed.
     ///
-    /// Random + CheckMac run inside the same chip channel: this avoids two
+    /// Random + `CheckMac` run inside the same chip channel: this avoids two
     /// wake / idle round-trips and matches the natural "ask for a challenge,
     /// then use it" flow.
     async fn checkmac_with_hash
@@ -1235,7 +1264,12 @@ fn retries_remaining(count: u32, batch_size: u8) -> u8
         return batch_size - 1;
     }
     // Mid-batch: batch - remainder is the count to the next multiple.
-    (batch - remainder) as u8
+    // `remainder = count % batch` is in `0..batch <= 255`, so the cast
+    // to `u8` is lossless. We have already returned for `remainder == 0`
+    // and `remainder == 1` above. here `2 <= remainder < batch_size`.
+    #[allow(clippy::cast_possible_truncation)]
+    let remainder_u8 = remainder as u8;
+    batch_size - remainder_u8
 }
 
 #[cfg(test)]

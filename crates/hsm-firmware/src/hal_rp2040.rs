@@ -60,12 +60,14 @@
 //! drops the controller. The peripherals are released for the next
 //! transaction or for the next wake token.
 
+use embassy_rp::gpio::{Input, Output};
 use embassy_rp::i2c::{self, Async, Config as I2cConfig, I2c, InterruptHandler};
 use embassy_rp::peripherals::{I2C0, PIN_4, PIN_5};
 use embassy_rp::{bind_interrupts, Peri};
 use embassy_time::{Duration, Timer};
 
 use atecc608b::AteccHal;
+use hsm_firmware_logic::{Button, Led};
 
 bind_interrupts!(pub(crate) struct Irqs
 {
@@ -237,5 +239,76 @@ impl AteccHal for Rp2040Hal
     async fn delay_ms(&mut self, duration_ms: u32)
     {
         Timer::after(Duration::from_millis(u64::from(duration_ms))).await;
+    }
+}
+
+// --- LED and button trait implementations --------------------------------
+//
+// Orphan rules forbid implementing the `Led` / `Button` traits from
+// `hsm_firmware_logic` directly on `embassy_rp::gpio::Output` /
+// `Input`: neither the trait nor the type is local to this crate.
+//
+// We bridge through newtype wrappers. `main.rs` constructs them from
+// the raw embassy types right after configuring the GPIO peripherals,
+// and the task spawners take the wrappers. The newtypes are zero-cost
+// at runtime (single-field structs around `Output<'static>` /
+// `Input<'static>` with no extra padding).
+//
+// Active-high LED wiring assumed: driving the pin high lights the LED.
+// Active-low button wiring assumed: the pin reads low when the user is
+// pressing the button (pull-up to 3V3, switch to ground).
+
+/// Newtype wrapper that bridges `embassy_rp::gpio::Output<'static>` to
+/// the [`Led`] trait defined in `hsm_firmware_logic`.
+pub(crate) struct Rp2040Led
+{
+    pin: Output<'static>,
+}
+
+impl Rp2040Led
+{
+    /// Wrap an existing `Output` as an LED. Constructed in `main.rs`
+    /// from the raw GPIO peripheral after `Output::new`.
+    pub(crate) fn new(pin: Output<'static>) -> Self
+    {
+        Self { pin }
+    }
+}
+
+impl Led for Rp2040Led
+{
+    fn on(&mut self)
+    {
+        self.pin.set_high();
+    }
+
+    fn off(&mut self)
+    {
+        self.pin.set_low();
+    }
+}
+
+/// Newtype wrapper that bridges `embassy_rp::gpio::Input<'static>` to
+/// the [`Button`] trait defined in `hsm_firmware_logic`.
+pub(crate) struct Rp2040Button
+{
+    pin: Input<'static>,
+}
+
+impl Rp2040Button
+{
+    /// Wrap an existing `Input` as a button.
+    pub(crate) fn new(pin: Input<'static>) -> Self
+    {
+        Self { pin }
+    }
+}
+
+impl Button for Rp2040Button
+{
+    fn is_pressed_raw(&self) -> bool
+    {
+        // Active-low: `is_low()` means the user is pressing.
+        self.pin.is_low()
     }
 }

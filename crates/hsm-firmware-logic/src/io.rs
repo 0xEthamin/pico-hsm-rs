@@ -15,10 +15,11 @@
 
 //! GPIO abstractions: LEDs and the touch button.
 //!
-//! The hardware-facing implementations on the RP2040 use `embassy_rp::gpio`.
-//! For testing, drop-in mocks live in this same module behind a `cfg(test)`
-//! gate. Code that wants to be testable in host context depends on the
-//! [`Led`] and [`Button`] traits, never on the embassy types directly.
+//! The hardware-facing implementations on the RP2040 use `embassy_rp::gpio`
+//! and live in `hsm-firmware/src/hal_rp2040.rs`. They implement the [`Led`]
+//! and [`Button`] traits defined here. The firmware tasks (`animation`,
+//! `touch`) are generic over those traits so they can be exercised against
+//! mocks host-side.
 //!
 //! # Debouncing
 //!
@@ -32,16 +33,33 @@
 
 /// LED control trait.
 ///
-/// Two methods only: turn on, turn off. Everything fancier (blink, pulse,
-/// fade) is composed on top by reading the LED pattern out of the
-/// [`crate::state_machine::TokenState`] and toggling at the right cadence.
-pub(crate) trait Led
+/// Three methods: turn on, turn off, set explicitly. The third one has a
+/// default impl in terms of the first two so backends only need to
+/// implement [`Self::on`] and [`Self::off`]. Everything fancier (blink,
+/// pulse, fade) is composed on top by reading the LED pattern out of the
+/// [`crate::state_machine::TokenState`] and calling [`Self::set`] at the
+/// right cadence.
+pub trait Led
 {
     /// Turn the LED on (drive the GPIO high on active-high wiring).
     fn on(&mut self);
 
     /// Turn the LED off.
     fn off(&mut self);
+
+    /// Convenience: set the LED to a specific level. Default impl
+    /// dispatches to [`Self::on`] or [`Self::off`].
+    fn set(&mut self, on: bool)
+    {
+        if on
+        {
+            self.on();
+        }
+        else
+        {
+            self.off();
+        }
+    }
 }
 
 /// Button input trait.
@@ -50,7 +68,7 @@ pub(crate) trait Led
 /// pressed and `true` when released, because of the pull-up to 3V3. The
 /// trait abstracts that away and returns a boolean in the user-friendly
 /// direction: `true` means "user is pressing the button right now".
-pub(crate) trait Button
+pub trait Button
 {
     /// `true` if the button is currently pressed at the GPIO level (raw,
     /// not yet debounced).
@@ -63,7 +81,7 @@ pub(crate) trait Button
 /// At a 1 ms sampling rate this gives a 5 ms minimum settling time, well
 /// above the typical 1 ms of switch bounce we expect from the tactile
 /// switches we use.
-pub(crate) const DEBOUNCE_STABLE_SAMPLES: u8 = 5;
+pub const DEBOUNCE_STABLE_SAMPLES: u8 = 5;
 
 /// Software debouncer state.
 ///
@@ -133,8 +151,13 @@ impl Debouncer
     }
 
     /// Current stable level (without consuming a sample).
+    ///
+    /// Useful for diagnostics: a task can query the current stable state
+    /// without committing to a sampling cycle. The `touch_task` logs
+    /// this at startup so the developer can confirm the resting state of
+    /// the button line via defmt RTT or USB CDC trace.
     #[must_use]
-    pub(crate) const fn stable(&self) -> bool
+    pub const fn stable(&self) -> bool
     {
         self.stable
     }

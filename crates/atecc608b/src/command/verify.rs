@@ -45,7 +45,7 @@ const VERIFY_MODE_EXTERNAL: u8 = 0x02;
 /// `param2` key id for the P-256 (NIST secp256r1) curve.
 const VERIFY_KEY_P256: u16 = 0x0004;
 
-impl<'a, H> AteccChannel<'a, H>
+impl<H> AteccChannel<'_, H>
 where
     H: AteccHal,
 {

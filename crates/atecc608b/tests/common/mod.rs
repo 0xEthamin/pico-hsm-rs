@@ -22,6 +22,16 @@
 //!
 //! Test files in `tests/` declare `mod common;` to import this module.
 
+// `mod common;` is compiled once per integration-test binary in this
+// crate (each file under `tests/integration_*.rs` produces its own
+// binary). Helpers that are useful to only a subset of those tests
+// therefore appear "dead" in the others, even though they are exercised
+// somewhere. The official Rust Book documents this exact pattern and
+// recommends the crate-level allow below. See:
+// https://doc.rust-lang.org/book/ch11-03-test-organization.html#submodules-in-integration-tests
+//
+// The allow is scoped to this shared-helpers module only. Production
+// code in `src/` keeps the default deny stance.
 #![allow(dead_code)]
 
 use std::collections::VecDeque;
@@ -241,8 +251,7 @@ impl AteccHal for MockHal
         }
     }
 
-    async fn pulse_sda_low
-    (
+    async fn pulse_sda_low(
         &mut self,
         duration_us: u32,
     ) -> Result<(), Self::Error>

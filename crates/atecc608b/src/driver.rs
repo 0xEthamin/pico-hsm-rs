@@ -47,7 +47,7 @@
 //!    [`Atecc`] is released.
 //!
 //! Within one channel the caller may run as many commands as needed (this
-//! is how multi-step workflows like Nonce + Sign or Nonce + GenDig + Write
+//! is how multi-step workflows like Nonce + Sign or Nonce + `GenDig` + Write
 //! keep `TempKey` alive between steps). The channel must always be closed
 //! explicitly so the chip's state stays in sync with the driver's view.
 //!
@@ -130,15 +130,6 @@ where
         self.hal
     }
 
-    /// Borrow the underlying HAL mutably.
-    ///
-    /// Useful for tests that need to manipulate the mock directly. Most
-    /// production code should never need this.
-    pub(crate) fn hal_mut(&mut self) -> &mut H
-    {
-        &mut self.hal
-    }
-
     /// Open a communication channel with the chip.
     ///
     /// Performs the wake sequence and returns an [`AteccChannel`] that
@@ -195,7 +186,7 @@ where
     closed: bool,
 }
 
-impl<'a, H> AteccChannel<'a, H>
+impl<H> AteccChannel<'_, H>
 where
     H: AteccHal,
 {
@@ -376,7 +367,7 @@ where
     ///
     /// This helper does NOT idle the chip after the response: the channel
     /// model means idling is the explicit job of [`Self::close`]. That
-    /// keeps multi-step workflows (Nonce + Sign, Nonce + GenDig + Write)
+    /// keeps multi-step workflows (Nonce + Sign, Nonce + `GenDig` + Write)
     /// working naturally inside a single channel.
     async fn run_command
     (
@@ -456,7 +447,7 @@ where
     }
 }
 
-impl<'a, H> Drop for AteccChannel<'a, H>
+impl<H> Drop for AteccChannel<'_, H>
 where
     H: AteccHal,
 {

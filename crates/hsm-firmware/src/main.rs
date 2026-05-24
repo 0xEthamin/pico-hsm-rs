@@ -94,12 +94,15 @@ async fn main(spawner: Spawner)
 
     // GPIOs.
     // GP15 : touch button. Active-low: switch to ground, internal pull-up
-    // to 3V3. Reads low when pressed.
-    let button = Input::new(peripherals.PIN_15, Pull::Up);
-    // GP16 : green status LED, active-high.
-    let led_green = Output::new(peripherals.PIN_16, Level::Low);
+    // to 3V3. Reads low when pressed. Wrapped in `Rp2040Button` so the
+    // touch task can interact with it through the `Button` trait, which
+    // also lets us test the task logic against a mock host-side.
+    let button = hal_rp2040::Rp2040Button::new(Input::new(peripherals.PIN_15, Pull::Up));
+    // GP16 : green status LED, active-high. Same wrapping rationale as
+    // the button.
+    let led_green = hal_rp2040::Rp2040Led::new(Output::new(peripherals.PIN_16, Level::Low));
     // GP17 : yellow touch-awaiting LED, active-high.
-    let led_yellow = Output::new(peripherals.PIN_17, Level::Low);
+    let led_yellow = hal_rp2040::Rp2040Led::new(Output::new(peripherals.PIN_17, Level::Low));
 
     info!("mini-hsm firmware booted");
 

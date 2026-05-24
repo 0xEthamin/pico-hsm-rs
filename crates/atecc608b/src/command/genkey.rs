@@ -60,7 +60,7 @@ const GENKEY_MODE_CREATE: u8 = 0x04;
 /// key in the slot.
 const GENKEY_MODE_PUBLIC: u8 = 0x00;
 
-impl<'a, H> AteccChannel<'a, H>
+impl<H> AteccChannel<'_, H>
 where
     H: AteccHal,
 {
