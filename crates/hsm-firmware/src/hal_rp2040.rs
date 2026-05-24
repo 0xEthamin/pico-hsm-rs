@@ -16,36 +16,50 @@
 //! ATECC HAL implementation for the RP2040.
 //!
 //! Backs the [`atecc608b::AteccHal`] trait by `embassy_rp::i2c` for normal
-//! transactions and by a brief `Output` reconfiguration of the SDA pin
-//! for the ATECC wake pulse.
+//! transactions and by a temporary 100 kHz I2C write to address `0x00`
+//! for the ATECC wake token.
 //!
-//! # Wake pulse rationale
+//! # Wake-token rationale
 //!
-//! The ATECC608B distinguishes a host-driven wake pulse from regular I2C
-//! traffic by SDA being held low for at least `tWLO = 60 us`. Standard
-//! I2C peripherals do not expose a way to hold a single line low for an
-//! arbitrary duration without sending START / data / STOP, so we
-//! temporarily reclaim the SDA pin from the I2C controller, drive it as
-//! an output low for the requested duration, then release it. Pull-ups
-//! on the bus return SDA to high after the release.
+//! The ATECC608B detects a host-driven wake when SDA is held low for at
+//! least `tWLO = 60 us`. There are two ways to produce that waveform:
 //!
-//! The post-pulse wait (`tHTSU`, ~4.1 ms before the chip responds to I2C)
-//! is the **driver's** responsibility, not the HAL's: [`crate::tasks`]
-//! calls `atecc608b::wake::wake`, which performs `pulse_sda_low` followed
-//! by a `delay_us(WAKE_DELAY_US)` of its own. Keeping the delay in the
-//! driver lets us tune it without recompiling the firmware crate and
-//! avoids a duplicated source of truth.
+//! 1. **GPIO bit-bang**: reconfigure SDA as an output, drive it low for
+//!    the required duration, release.
+//! 2. **I2C wake token at 100 kHz** (what CryptoAuthLib does in
+//!    `lib/calib/calib_basic.c::calib_wakeup_i2c` and every
+//!    `lib/hal/hal_i2c_*.c::hal_i2c_wake`): drop the bus to 100 kHz so
+//!    that the address byte of a regular I2C write to a NACK address
+//!    (`0x00`) takes long enough to satisfy `tWLO`, then issue that
+//!    write and ignore the inevitable NACK.
+//!
+//! We use the second method. The first one ran into stability problems
+//! during bring-up: reconfiguring SDA between GPIO output and I2C
+//! alternate function created transient transitions that the dormant
+//! chip sometimes mis-interpreted as protocol noise, and led to
+//! intermittent `0x04` HAL errors on subsequent reads. The CryptoAuthLib
+//! method keeps the I2C controller in continuous control of the line
+//! and matches the reference implementation byte-for-byte. Restoring the
+//! bus to 400 kHz is automatic on the next [`Self::build_i2c`] call.
+//!
+//! The post-pulse wait (`tHTSU`, ~4.5 ms before the chip responds to
+//! I2C) is the **driver's** responsibility, not the HAL's:
+//! [`crate::tasks`] indirectly calls `atecc608b::wake::wake`, which
+//! performs `pulse_sda_low` followed by a `delay_us(WAKE_DELAY_US)` of
+//! its own. Keeping the delay in the driver lets us tune it without
+//! recompiling the firmware crate and avoids a duplicated source of
+//! truth.
 //!
 //! # Resource management
 //!
-//! Because the I2C peripheral and the SDA pin are needed alternately in
-//! two different modes, this HAL owns the [`Peri`] singletons directly
-//! rather than holding a long-lived `I2c` instance. Each transaction
-//! creates a fresh [`I2c`] via [`Peri::reborrow`], performs the
-//! operation, and drops the controller. The peripherals are released for
-//! the next transaction or for the wake pulse.
+//! Because the I2C peripheral and the SDA/SCL pins are needed at two
+//! different bus frequencies (100 kHz for the wake token, 400 kHz
+//! otherwise), this HAL owns the [`Peri`] singletons directly rather
+//! than holding a long-lived `I2c` instance. Each transaction creates a
+//! fresh [`I2c`] via [`Peri::reborrow`], performs the operation, and
+//! drops the controller. The peripherals are released for the next
+//! transaction or for the next wake token.
 
-use embassy_rp::gpio::{Level, Output};
 use embassy_rp::i2c::{self, Async, Config as I2cConfig, I2c, InterruptHandler};
 use embassy_rp::peripherals::{I2C0, PIN_4, PIN_5};
 use embassy_rp::{bind_interrupts, Peri};
@@ -58,10 +72,29 @@ bind_interrupts!(pub(crate) struct Irqs
     I2C0_IRQ => InterruptHandler<I2C0>;
 });
 
-/// I2C bus frequency. The ATECC608B supports up to 1 MHz; we run at the
-/// "fast mode" 400 kHz to match the typical layout constraints of
-/// breadboard / 2-layer PCB hardware. Lower if signal integrity is poor.
+/// I2C bus frequency for normal command traffic. The ATECC608B supports
+/// up to 1 MHz; we run at the "fast mode" 400 kHz to match the typical
+/// layout constraints of breadboard / 2-layer PCB hardware. Lower if
+/// signal integrity is poor.
 pub(crate) const I2C_FREQ_HZ: u32 = 400_000;
+
+/// I2C bus frequency used **only** for the wake token. CryptoAuthLib
+/// drops to 100 kHz so a single byte time on the bus (~90 us address
+/// phase) exceeds the chip's tWLO of 60 us. At 400 kHz an address byte
+/// is too short to be seen as a wake token, hence the temporary slowdown.
+pub(crate) const WAKE_TOKEN_FREQ_HZ: u32 = 100_000;
+
+/// I2C address used to generate the wake token. CryptoAuthLib writes to
+/// address `0x00` (general call) so the dormant chip NACKs cleanly. Any
+/// address the chip does not respond to would do; sticking to `0x00`
+/// matches the reference implementation.
+pub(crate) const WAKE_TOKEN_ADDR: u8 = 0x00;
+
+/// Filler byte for the wake-token write. RP2040's I2C peripheral refuses
+/// zero-length writes; one filler byte is enough to make the controller
+/// happy, and the byte is never actually clocked out because the address
+/// is NACKed.
+pub(crate) const WAKE_TOKEN_FILLER: u8 = 0x00;
 
 /// Error type returned by the RP2040 HAL.
 #[derive(Debug, defmt::Format)]
@@ -91,8 +124,9 @@ pub(crate) struct Rp2040Hal
     i2c_peri: Peri<'static, I2C0>,
     /// SCL pin (GP5).
     scl: Peri<'static, PIN_5>,
-    /// SDA pin (GP4). Re-borrowed in either I2C mode or GPIO output
-    /// mode depending on whether a wake pulse is in progress.
+    /// SDA pin (GP4). The pin is always driven by the I2C controller,
+    /// at either 400 kHz (normal traffic) or 100 kHz (wake token). It
+    /// is never reconfigured to GPIO output.
     sda: Peri<'static, PIN_4>,
 }
 
@@ -149,26 +183,49 @@ impl AteccHal for Rp2040Hal
         Ok(())
     }
 
-    async fn pulse_sda_low(&mut self, duration_us: u32) -> Result<(), Self::Error>
+    async fn pulse_sda_low(&mut self, _duration_us: u32) -> Result<(), Self::Error>
     {
-        // Drive SDA low for the requested duration. While this Output is
-        // alive, the I2C controller cannot use SDA. We deliberately do
-        // NOT hold an I2c instance across this call: the I2c gets
-        // reconstructed on the next i2c_write / i2c_read, which
-        // reconfigures the pin in alternate function mode.
+        // Wake-token method, faithful to CryptoAuthLib
+        // (`lib/calib/calib_basic.c::calib_wakeup_i2c` and
+        // `lib/hal/hal_i2c_*.c::hal_i2c_wake`):
         //
-        // The post-pulse `tHTSU` wait happens in the driver (`wake::wake`
-        // calls `delay_us(WAKE_DELAY_US)` right after this returns), so
-        // this method does the pulse only.
-        let mut sda_out = Output::new(self.sda.reborrow(), Level::Low);
-        Timer::after(Duration::from_micros(u64::from(duration_us))).await;
-        // Drive high briefly before releasing, to avoid a high-Z window
-        // where the line could droop on weak pull-ups.
-        sda_out.set_high();
-        // Dropping the Output here returns SDA to high-Z input mode. The
-        // external pull-ups (and the chip's internal pull-up) keep the
-        // line high.
-        drop(sda_out);
+        // 1. Drop the bus to 100 kHz so a single I2C byte time exceeds
+        //    `tWLO` (60 us, the chip's minimum wake-pulse low time).
+        // 2. Issue a write to a deliberate-NACK address (here `0x00`,
+        //    matching CryptoAuthLib). The address phase of that byte at
+        //    100 kHz holds SDA in a pattern that the dormant chip
+        //    detects as a wake token. The chip NACKs because it is
+        //    asleep and `0x00` is not its address anyway; we ignore
+        //    the result.
+        // 3. The post-pulse `tHTSU` wait happens in the driver
+        //    (`wake::wake` calls `delay_us(WAKE_DELAY_US)` right after
+        //    this returns), so this method only generates the token.
+        //
+        // The `duration_us` argument is ignored: in CryptoAuthLib the
+        // pulse duration is derived from the bus baud rate, not from
+        // an external parameter. We keep the parameter in the trait to
+        // accommodate alternative HALs (e.g. a SoftI2C HAL that does
+        // need to bit-bang the line for a precise duration).
+        //
+        // RP2040 specific: `embassy_rp::i2c` refuses zero-length writes
+        // because its FIFO state machine requires at least one byte to
+        // queue, so we send one filler byte. The chip NACKs during the
+        // address phase, the filler is never clocked out anyway.
+        let mut config = I2cConfig::default();
+        config.frequency = WAKE_TOKEN_FREQ_HZ;
+        let mut i2c = I2c::new_async
+        (
+            self.i2c_peri.reborrow(),
+            self.scl.reborrow(),
+            self.sda.reborrow(),
+            Irqs,
+            config,
+        );
+        // The result is intentionally discarded: a NACK from address
+        // `0x00` is the expected outcome, and any other I2C error here
+        // is also moot since the only point of the call is the
+        // waveform it places on SDA.
+        let _ = i2c.write_async(WAKE_TOKEN_ADDR, [WAKE_TOKEN_FILLER]).await;
         Ok(())
     }
 

@@ -19,7 +19,7 @@
 //! pattern is the same throughout:
 //!
 //! 1. A method on [`crate::Atecc`] that takes typed parameters.
-//! 2. Internally it calls [`crate::Atecc::execute_command`] with the right
+//! 2. Internally it calls [`crate::AteccChannel::execute_command`] with the right
 //!    opcode, params, and expected execution time.
 //! 3. It parses the resulting payload into a strongly-typed return value.
 

@@ -31,7 +31,7 @@
 //!   loop.
 //! - [`command`]   - One module per high-level command (Info, Random, Sign,
 //!   `GenKey`, etc). Each one exposes a typed async function on the
-//!   [`driver::Atecc`] handle.
+//!   [`driver::AteccChannel`] handle.
 //! - [`error`]     - Error types for each layer, with `From` conversions for
 //!   chaining.
 //! - [`opcodes`]   - Numeric constants extracted from the Microchip
@@ -39,8 +39,9 @@
 //!   on-the-wire values.
 //! - [`hal`]       - The [`hal::AteccHal`] trait every backend must implement.
 //! - [`slot`]      - Slot identifiers and helpers.
-//! - [`driver`]    - The top-level [`driver::Atecc`] handle that ties
-//!   everything together.
+//! - [`driver`]    - The top-level [`driver::Atecc`] handle (sleeping) and
+//!   [`driver::AteccChannel`] (awake) that together model the chip's
+//!   wake / idle lifecycle.
 
 #![no_std]
 #![deny(missing_docs)]
@@ -58,6 +59,7 @@ pub(crate) mod slot;
 pub(crate) mod wake;
 
 pub use driver::Atecc;
+pub use driver::AteccChannel;
 pub use error::AteccError;
 pub use error::ChipError;
 pub use hal::AteccHal;

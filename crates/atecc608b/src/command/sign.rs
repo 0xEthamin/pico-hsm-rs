@@ -19,8 +19,8 @@
 //!
 //! The driver exposes the "External" sign mode only: the host first loads
 //! a 32-byte message digest into the chip's `TempKey` register via a
-//! passthrough [`Atecc::nonce_passthrough`] call, then issues
-//! [`Atecc::sign_external`]. The "Internal" sign mode (where the chip
+//! passthrough [`AteccChannel::nonce_passthrough`] call, then issues
+//! [`AteccChannel::sign_external`]. The "Internal" sign mode (where the chip
 //! signs a digest it computed itself in a previous operation) is not used
 //! in this project's workflow and is therefore not exposed.
 //!
@@ -34,7 +34,7 @@
 //! certificate libraries, the higher layer must do so explicitly: the
 //! driver returns the chip output verbatim.
 
-use crate::driver::Atecc;
+use crate::driver::AteccChannel;
 use crate::error::AteccError;
 use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_SIGN_MS, OP_SIGN};
@@ -47,25 +47,26 @@ pub const SIGNATURE_SIZE: usize = 64;
 /// `TempKey`).
 const SIGN_MODE_EXTERNAL: u8 = 0x80;
 
-impl<H> Atecc<H>
+impl<'a, H> AteccChannel<'a, H>
 where
     H: AteccHal,
 {
     /// Sign the 32-byte digest currently loaded in `TempKey` with the
     /// private key in `slot`.
     ///
-    /// Callers must load the digest via [`Atecc::nonce_passthrough`] with
-    /// target [`crate::command::nonce::NonceTarget::TempKey`] immediately
-    /// before this call. Any intervening command that overwrites `TempKey`
-    /// invalidates the operation.
+    /// Callers must load the digest via [`AteccChannel::nonce_passthrough`]
+    /// with target [`crate::command::nonce::NonceTarget::TempKey`]
+    /// immediately before this call. Any intervening command that
+    /// overwrites `TempKey` invalidates the operation.
     ///
     /// Returns the 64-byte raw signature `R || S`.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`]. The chip rejects this command if the
-    /// target slot has `ReqAuth=1` and no authenticated session is active,
-    /// or if `TempKey` was not properly seeded.
-    pub async fn sign_external(
+    /// See [`AteccChannel::execute_command`]. The chip rejects this command
+    /// if the target slot has `ReqAuth=1` and no authenticated session is
+    /// active, or if `TempKey` was not properly seeded.
+    pub async fn sign_external
+    (
         &mut self,
         slot: Slot,
     ) -> Result<[u8; SIGNATURE_SIZE], AteccError<H::Error>>
@@ -74,7 +75,8 @@ where
         let mut response_buf = [0u8; 1 + SIGNATURE_SIZE + 2];
         let param2 = u16::from(slot.as_u8());
         let payload = self
-            .execute_command(
+            .execute_command
+            (
                 OP_SIGN,
                 SIGN_MODE_EXTERNAL,
                 param2,

@@ -35,7 +35,7 @@
 //! `CHECKMAC_CLIENT_RESPONSE_SIZE` (32),
 //! `CHECKMAC_OTHER_DATA_SIZE` (13).
 
-use crate::driver::Atecc;
+use crate::driver::AteccChannel;
 use crate::error::{AteccError, ChipError};
 use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_CHECKMAC_MS, OP_CHECKMAC};
@@ -73,7 +73,7 @@ pub const CHECKMAC_DATA_SIZE: usize =
 /// the slot identified by `param2`.
 const CHECKMAC_MODE_CHALLENGE: u8 = 0x00;
 
-impl<H> Atecc<H>
+impl<'a, H> AteccChannel<'a, H>
 where
     H: AteccHal,
 {
@@ -94,9 +94,10 @@ where
     /// outcome. Reaching the threshold permanently blocks the slot.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command_status`]. A miscompare (`0x01`) is
-    /// returned as `Ok(false)`.
-    pub async fn checkmac(
+    /// See [`AteccChannel::execute_command_status`]. A miscompare (`0x01`)
+    /// is returned as `Ok(false)`.
+    pub async fn checkmac
+    (
         &mut self,
         slot: Slot,
         challenge: &[u8; CHECKMAC_CHALLENGE_SIZE],
@@ -112,7 +113,8 @@ where
             .copy_from_slice(other_data);
 
         let result = self
-            .execute_command_status(
+            .execute_command_status
+            (
                 OP_CHECKMAC,
                 CHECKMAC_MODE_CHALLENGE,
                 u16::from(slot.as_u8()),

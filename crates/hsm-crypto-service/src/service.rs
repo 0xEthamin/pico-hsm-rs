@@ -22,6 +22,27 @@
 //! The service is generic over both the HAL (so it can run against a real
 //! ATECC over I2C or against a `MockHal` in tests) and the [`Clock`] (so
 //! tests can drive time deterministically).
+//!
+//! # Channel discipline
+//!
+//! Every public method on [`CryptoService`] is responsible for opening
+//! and closing the chip channel(s) it needs.
+//!
+//! - For a single-shot chip command (e.g. read one counter), the method
+//!   opens a channel, runs the command, closes the channel.
+//! - For a multi-step chip workflow that **shares volatile state**
+//!   (Nonce + Sign, Nonce + GenDig + Write), the method opens **one**
+//!   channel that spans the whole sequence, so `TempKey` stays alive
+//!   across the steps.
+//! - For workflows that combine several independent chip commands
+//!   (e.g. read counter, then CheckMac, then read counter again), the
+//!   method may either keep one channel open for the whole flow or open
+//!   one per command. The choice is documented per method when it
+//!   matters; the default is to open one per logical step for clarity.
+//!
+//! The PIN "session" referred to elsewhere in this crate is unrelated to
+//! the chip channel. It is the host-side authentication window that
+//! says "the user has typed a valid PIN recently". See [`Session`].
 
 use core::fmt::Debug;
 
@@ -126,11 +147,22 @@ where
 
     /// Return chip revision, serial, and provisioning state.
     ///
+    /// Opens one channel for the revision read, then reuses a second
+    /// channel for the config-zone reads that produce serial and lock
+    /// status. The two channels are independent because there is no
+    /// volatile state to share.
+    ///
     /// # Errors
     /// See [`CryptoServiceError::Atecc`].
     pub async fn info(&mut self) -> ServiceResult<DeviceInfo, H::Error>
     {
-        let revision = self.atecc.info_revision().await?;
+        let revision =
+        {
+            let mut channel = self.atecc.open_channel().await?;
+            let revision = channel.info_revision().await?;
+            channel.close().await?;
+            revision
+        };
         let serial = self.cached_serial().await?;
         let is_provisioned = self.is_provisioned().await?;
         Ok(DeviceInfo { revision, serial, is_provisioned })
@@ -146,7 +178,10 @@ where
     /// See [`CryptoServiceError::Atecc`].
     pub async fn get_pubkey(&mut self, slot: Slot) -> ServiceResult<PublicKey, H::Error>
     {
-        Ok(self.atecc.genkey_public(slot).await?)
+        let mut channel = self.atecc.open_channel().await?;
+        let pk = channel.genkey_public(slot).await?;
+        channel.close().await?;
+        Ok(pk)
     }
 
     /// Generate a fresh ECC P-256 private key on chip in the specified
@@ -171,7 +206,10 @@ where
         slot: Slot,
     ) -> ServiceResult<PublicKey, H::Error>
     {
-        Ok(self.atecc.genkey_create(slot).await?)
+        let mut channel = self.atecc.open_channel().await?;
+        let pk = channel.genkey_create(slot).await?;
+        channel.close().await?;
+        Ok(pk)
     }
 
     /// Read the per-slot configuration bytes (`SlotConfig` + `KeyConfig`).
@@ -191,7 +229,11 @@ where
     pub async fn read_config_slot(&mut self, slot: Slot) -> ServiceResult<[u8; 4], H::Error>
     {
         let mut zone = [0u8; 128];
-        self.atecc.read_config_zone(&mut zone).await?;
+        {
+            let mut channel = self.atecc.open_channel().await?;
+            channel.read_config_zone(&mut zone).await?;
+            channel.close().await?;
+        }
         let n = usize::from(slot.as_u8());
         let sc_off = 20 + 2 * n;
         let kc_off = 96 + 2 * n;
@@ -222,7 +264,11 @@ where
             return Err(CryptoServiceError::InvalidFormat(FormatError::OutOfRange));
         }
         let mut zone = [0u8; 128];
-        self.atecc.read_config_zone(&mut zone).await?;
+        {
+            let mut channel = self.atecc.open_channel().await?;
+            channel.read_config_zone(&mut zone).await?;
+            channel.close().await?;
+        }
         let start = usize::from(block) * 32;
         let mut out = [0u8; 32];
         out.copy_from_slice(&zone[start..start + 32]);
@@ -261,7 +307,9 @@ where
         // of block). Matches `config_or_otp_address(block, 0)` in the
         // driver, but we encode it inline here.
         let address = u16::from(block) << 3;
-        self.atecc.write_32(Zone::Config, address, data).await?;
+        let mut channel = self.atecc.open_channel().await?;
+        channel.write_32(Zone::Config, address, data).await?;
+        channel.close().await?;
         Ok(())
     }
 
@@ -286,7 +334,7 @@ where
         validate_digits(pin)?;
 
         // Refuse early if PIN slot is already exhausted.
-        let count = self.atecc.counter_read(CounterId::Counter0).await?;
+        let count = self.read_counter(CounterId::Counter0).await?;
         let tries_left = retries_remaining(count, PIN_MAX_RETRIES);
         if tries_left == 0
         {
@@ -305,7 +353,7 @@ where
         {
             // The chip bumped Counter0 by 1 already. Report the new tries
             // remaining to the caller.
-            let new_count = self.atecc.counter_read(CounterId::Counter0).await?;
+            let new_count = self.read_counter(CounterId::Counter0).await?;
             let remaining = retries_remaining(new_count, PIN_MAX_RETRIES);
             return Err(CryptoServiceError::PinIncorrect { tries_remaining: remaining });
         }
@@ -345,7 +393,7 @@ where
         validate_digits(new_pin)?;
 
         // Refuse early if PUK is already exhausted.
-        let count = self.atecc.counter_read(CounterId::Counter1).await?;
+        let count = self.read_counter(CounterId::Counter1).await?;
         let tries_left = retries_remaining(count, PUK_MAX_RETRIES);
         if tries_left == 0
         {
@@ -362,7 +410,7 @@ where
 
         if !ok
         {
-            let new_count = self.atecc.counter_read(CounterId::Counter1).await?;
+            let new_count = self.read_counter(CounterId::Counter1).await?;
             let remaining = retries_remaining(new_count, PUK_MAX_RETRIES);
             return Err(CryptoServiceError::PukIncorrect { tries_remaining: remaining });
         }
@@ -399,10 +447,7 @@ where
     /// encrypted-write protocol. Counter0 is refreshed.
     ///
     /// # Errors
-    /// - [`CryptoServiceError::InvalidFormat`] if either PIN is not 4 digits.
-    /// - [`CryptoServiceError::PinBlocked`] if Counter0 is exhausted.
-    /// - [`CryptoServiceError::PinIncorrect`] if `old_pin` is wrong.
-    /// - [`CryptoServiceError::Atecc`] for chip-level errors.
+    /// See [`CryptoServiceError`] variants.
     pub async fn set_pin
     (
         &mut self,
@@ -414,47 +459,48 @@ where
         validate_digits(old_pin)?;
         validate_digits(new_pin)?;
 
-        // Step 1: verify the current PIN. This both authorises the
-        // change and opens/refreshes the PIN session. Counter0 is
-        // bumped by the chip during the CheckMac, and refreshed to a
-        // fresh batch by `verify_pin` on success.
-        self.verify_pin(old_pin).await?;
+        // Refuse early if PIN slot is already exhausted.
+        let count = self.read_counter(CounterId::Counter0).await?;
+        let tries_left = retries_remaining(count, PIN_MAX_RETRIES);
+        if tries_left == 0
+        {
+            return Err(CryptoServiceError::PinBlocked);
+        }
 
-        // Step 2: write the new PIN hash to slot 5 via the encrypted
-        // write protocol.
         let serial = self.cached_serial().await?;
+        let old_pin_hash = pin_hash(old_pin, &pin_salt(&serial));
+
+        let ok = self
+            .checkmac_with_hash(SLOT_PIN_HASH, &old_pin_hash, &serial)
+            .await?;
+        if !ok
+        {
+            let new_count = self.read_counter(CounterId::Counter0).await?;
+            let remaining = retries_remaining(new_count, PIN_MAX_RETRIES);
+            return Err(CryptoServiceError::PinIncorrect { tries_remaining: remaining });
+        }
+
         let new_pin_hash = pin_hash(new_pin, &pin_salt(&serial));
         self.write_slot_encrypted(SLOT_PIN_HASH, &new_pin_hash, io_key, &serial)
             .await?;
 
-        // Refresh Counter0 again: the user has just earned a fresh PIN
-        // batch under the *new* PIN.
+        // Successful PIN change: refresh counter and open / refresh PIN
+        // session.
         self.refresh_counter_batch(CounterId::Counter0, PIN_MAX_RETRIES).await?;
-
         let now = self.clock.now_ms();
-        self.session.touch(now);
+        self.session.open(now);
         Ok(())
     }
 
     /// Change the PUK.
     ///
-    /// Requires:
-    /// - An active PIN session (open via `verify_pin` earlier).
-    /// - Knowledge of the current PUK, re-verified against slot 6 here.
-    ///
-    /// Defence in depth: both the PIN session and the current PUK must
-    /// hold. Consumes one PUK attempt against Counter1 (refreshed back
-    /// to a fresh batch on success).
-    ///
-    /// Rewrites slot 6 with `SHA-256(new_puk || puk_salt)` via the
-    /// encrypted-write protocol.
+    /// Requires an active PIN session AND the current PUK. Defence in
+    /// depth: knowing the active session is not enough; the current PUK
+    /// is re-verified via `CheckMac` on slot 6, consuming one Counter1
+    /// attempt internally (refreshed on success).
     ///
     /// # Errors
-    /// - [`CryptoServiceError::InvalidFormat`] if either PUK is not 8 digits.
-    /// - [`CryptoServiceError::PinRequired`] if no PIN session is active.
-    /// - [`CryptoServiceError::Bricked`] if Counter1 is exhausted.
-    /// - [`CryptoServiceError::PukIncorrect`] if `old_puk` is wrong.
-    /// - [`CryptoServiceError::Atecc`] for chip-level errors.
+    /// See [`CryptoServiceError`] variants.
     pub async fn set_puk
     (
         &mut self,
@@ -466,7 +512,7 @@ where
         validate_digits(old_puk)?;
         validate_digits(new_puk)?;
 
-        // Step 1: require an active PIN session.
+        // Step 1: PIN session must be active.
         let now = self.clock.now_ms();
         if !self.session.is_active(now)
         {
@@ -474,7 +520,7 @@ where
         }
 
         // Step 2: refuse if Counter1 is exhausted (PUK bricked).
-        let count = self.atecc.counter_read(CounterId::Counter1).await?;
+        let count = self.read_counter(CounterId::Counter1).await?;
         if retries_remaining(count, PUK_MAX_RETRIES) == 0
         {
             return Err(CryptoServiceError::Bricked);
@@ -490,7 +536,7 @@ where
         {
             // The chip auto-bumped Counter1 by 1. Report the new
             // tries-remaining.
-            let new_count = self.atecc.counter_read(CounterId::Counter1).await?;
+            let new_count = self.read_counter(CounterId::Counter1).await?;
             let remaining = retries_remaining(new_count, PUK_MAX_RETRIES);
             return Err(CryptoServiceError::PukIncorrect { tries_remaining: remaining });
         }
@@ -565,8 +611,8 @@ where
     ) -> ServiceResult<[u8; PUK_LEN], H::Error>
     {
         // Step 1: precondition check. Both counters must be saturated.
-        let c0 = self.atecc.counter_read(CounterId::Counter0).await?;
-        let c1 = self.atecc.counter_read(CounterId::Counter1).await?;
+        let c0 = self.read_counter(CounterId::Counter0).await?;
+        let c1 = self.read_counter(CounterId::Counter1).await?;
         let pin_left = retries_remaining(c0, PIN_MAX_RETRIES);
         let puk_left = retries_remaining(c1, PUK_MAX_RETRIES);
         if pin_left != 0 || puk_left != 0
@@ -584,10 +630,18 @@ where
         // counter refresh so that if any GenKey fails (e.g. counter
         // hardware-bricked at 2^21) we have not yet consumed precious
         // counter cycles for nothing.
-        for slot_idx in [0u8, 1, 2, 3, 4, 7]
+        //
+        // All six keys are regenerated within a single channel: GenKey
+        // does not share volatile state with other commands, but reusing
+        // the channel avoids six wake/idle round-trips.
         {
-            let slot = Slot::const_new(slot_idx);
-            let _ = self.atecc.genkey_create(slot).await?;
+            let mut channel = self.atecc.open_channel().await?;
+            for slot_idx in [0u8, 1, 2, 3, 4, 7]
+            {
+                let slot = Slot::const_new(slot_idx);
+                let _ = channel.genkey_create(slot).await?;
+            }
+            channel.close().await?;
         }
 
         // Step 3: generate a fresh PUK, write its hash, refresh Counter1.
@@ -616,7 +670,13 @@ where
         &mut self,
     ) -> ServiceResult<[u8; PUK_LEN], H::Error>
     {
-        let random = self.atecc.random().await?;
+        let random =
+        {
+            let mut channel = self.atecc.open_channel().await?;
+            let random = channel.random().await?;
+            channel.close().await?;
+            random
+        };
         let mut puk = [b'0'; PUK_LEN];
         // Modulo 10 introduces a tiny bias (256 % 10 = 6 over the first 6 digits)
         // but the difference is negligible for an 8-digit PUK and the chip's RNG
@@ -649,7 +709,7 @@ where
     /// the host expects it to be. The chip recomputes its own and
     /// rejects the lock if the two disagree.
     ///
-    /// **Irreversible.** See [`atecc608b::Atecc::lock_config_zone`].
+    /// **Irreversible.** See [`atecc608b::AteccChannel::lock_config_zone`].
     ///
     /// # Errors
     /// - [`CryptoServiceError::Atecc`] if the chip refuses (typically
@@ -660,7 +720,14 @@ where
         expected_crc: u16,
     ) -> ServiceResult<(), H::Error>
     {
-        self.atecc.lock_config_zone(expected_crc).await?;
+        let mut channel = self.atecc.open_channel().await?;
+        // Best effort close on error: capture the lock result and always
+        // attempt to close. Idle preserves volatile state (which is none
+        // here, the lock command leaves no `TempKey`) and resets the
+        // watchdog so the next channel sees a clean baseline.
+        let result = channel.lock_config_zone(expected_crc).await;
+        channel.close().await?;
+        result?;
         Ok(())
     }
 
@@ -668,7 +735,7 @@ where
     ///
     /// `expected_crc` is the CRC-16/CCITT of the slot contents.
     ///
-    /// **Irreversible.** See [`atecc608b::Atecc::lock_data_zone`].
+    /// **Irreversible.** See [`atecc608b::AteccChannel::lock_data_zone`].
     ///
     /// # Errors
     /// - [`CryptoServiceError::Atecc`] if the chip refuses.
@@ -678,14 +745,17 @@ where
         expected_crc: u16,
     ) -> ServiceResult<(), H::Error>
     {
-        self.atecc.lock_data_zone(expected_crc).await?;
+        let mut channel = self.atecc.open_channel().await?;
+        let result = channel.lock_data_zone(expected_crc).await;
+        channel.close().await?;
+        result?;
         Ok(())
     }
 
     /// Permanently lock an individual slot. The slot's config in the
     /// configuration zone must have `Lockable=1` for this to succeed.
     ///
-    /// **Irreversible.** See [`atecc608b::Atecc::lock_slot`].
+    /// **Irreversible.** See [`atecc608b::AteccChannel::lock_slot`].
     ///
     /// # Errors
     /// - [`CryptoServiceError::Atecc`] if the chip refuses (slot not
@@ -696,7 +766,10 @@ where
         slot: Slot,
     ) -> ServiceResult<(), H::Error>
     {
-        self.atecc.lock_slot(slot).await?;
+        let mut channel = self.atecc.open_channel().await?;
+        let result = channel.lock_slot(slot).await;
+        channel.close().await?;
+        result?;
         Ok(())
     }
 
@@ -742,7 +815,9 @@ where
             return Err(CryptoServiceError::InvalidSlot { slot });
         }
         let address = atecc608b::command::read_write::data_address(slot, 0, 0);
-        self.atecc.write_32(Zone::Data, address, value).await?;
+        let mut channel = self.atecc.open_channel().await?;
+        channel.write_32(Zone::Data, address, value).await?;
+        channel.close().await?;
         Ok(())
     }
 
@@ -802,7 +877,13 @@ where
         &mut self,
     ) -> ServiceResult<[u8; SLOT_VALUE_LEN], H::Error>
     {
-        let io_key = self.atecc.random().await?;
+        let io_key =
+        {
+            let mut channel = self.atecc.open_channel().await?;
+            let io_key = channel.random().await?;
+            channel.close().await?;
+            io_key
+        };
         self.provision_slot(SLOT_IO_KEY, &io_key).await?;
         Ok(io_key)
     }
@@ -810,6 +891,10 @@ where
     /// Sign a 32-byte digest with the private key in `slot`.
     ///
     /// Requires an active PIN session.
+    ///
+    /// Internally this is a two-step chip workflow: `Nonce(passthrough,
+    /// TempKey)` then `Sign(external, slot)`. Both steps run inside a
+    /// single chip channel so `TempKey` stays alive between them.
     ///
     /// # Errors
     /// - [`CryptoServiceError::PinRequired`] if no session is active.
@@ -829,8 +914,16 @@ where
         }
 
         // Load the digest into TempKey via passthrough Nonce, then Sign.
-        self.atecc.nonce_passthrough(NonceTarget::TempKey, digest).await?;
-        let signature = self.atecc.sign_external(slot).await?;
+        // Both must run in the same channel: TempKey is volatile and
+        // closing the channel idles the chip between them would lose it.
+        let signature =
+        {
+            let mut channel = self.atecc.open_channel().await?;
+            channel.nonce_passthrough(NonceTarget::TempKey, digest).await?;
+            let signature = channel.sign_external(slot).await?;
+            channel.close().await?;
+            signature
+        };
 
         // Refresh session activity timestamp.
         self.session.touch(now);
@@ -854,12 +947,20 @@ where
 
     /// Report the current PIN / PUK retry counters and session state.
     ///
+    /// Reads both counters within a single chip channel for efficiency.
+    ///
     /// # Errors
     /// See [`CryptoServiceError::Atecc`].
     pub async fn get_pin_status(&mut self) -> ServiceResult<PinStatus, H::Error>
     {
-        let c0 = self.atecc.counter_read(CounterId::Counter0).await?;
-        let c1 = self.atecc.counter_read(CounterId::Counter1).await?;
+        let (c0, c1) =
+        {
+            let mut channel = self.atecc.open_channel().await?;
+            let c0 = channel.counter_read(CounterId::Counter0).await?;
+            let c1 = channel.counter_read(CounterId::Counter1).await?;
+            channel.close().await?;
+            (c0, c1)
+        };
         Ok(PinStatus
         {
             pin_tries_remaining: retries_remaining(c0, PIN_MAX_RETRIES),
@@ -874,6 +975,24 @@ where
         self.session.close();
     }
 
+    // -------------------------------------------------------------------
+    // Private helpers (own their channel(s))
+    // -------------------------------------------------------------------
+
+    /// Read one counter inside its own channel. Helper used by all the
+    /// PIN / PUK retry-accounting code paths.
+    async fn read_counter
+    (
+        &mut self,
+        counter: CounterId,
+    ) -> ServiceResult<u32, H::Error>
+    {
+        let mut channel = self.atecc.open_channel().await?;
+        let count = channel.counter_read(counter).await?;
+        channel.close().await?;
+        Ok(count)
+    }
+
     /// Read the chip's 9-byte serial number, caching it on first call.
     async fn cached_serial(&mut self) -> ServiceResult<[u8; CHIP_SERIAL_LEN], H::Error>
     {
@@ -883,7 +1002,11 @@ where
         }
 
         let mut config = [0u8; 128];
-        self.atecc.read_config_zone(&mut config).await?;
+        {
+            let mut channel = self.atecc.open_channel().await?;
+            channel.read_config_zone(&mut config).await?;
+            channel.close().await?;
+        }
         // SN layout per ATECC608 config zone:
         //   bytes 0..4 = SN[0..4]
         //   bytes 8..13 = SN[4..9]
@@ -901,7 +1024,11 @@ where
     async fn is_provisioned(&mut self) -> ServiceResult<bool, H::Error>
     {
         let mut config = [0u8; 128];
-        self.atecc.read_config_zone(&mut config).await?;
+        {
+            let mut channel = self.atecc.open_channel().await?;
+            channel.read_config_zone(&mut config).await?;
+            channel.close().await?;
+        }
         let config_locked = config[87] == 0x00;
         let data_locked = config[86] == 0x00;
         Ok(config_locked && data_locked)
@@ -909,6 +1036,10 @@ where
 
     /// Issue a `CheckMac` against `slot` with the host-computed hash that
     /// should match its content, and return whether the chip confirmed.
+    ///
+    /// Random + CheckMac run inside the same chip channel: this avoids two
+    /// wake / idle round-trips and matches the natural "ask for a challenge,
+    /// then use it" flow.
     async fn checkmac_with_hash
     (
         &mut self,
@@ -917,12 +1048,16 @@ where
         serial: &[u8; CHIP_SERIAL_LEN],
     ) -> ServiceResult<bool, H::Error>
     {
+        let mut channel = self.atecc.open_channel().await?;
         // Generate a fresh 32-byte challenge from the chip's RNG.
-        let challenge = self.atecc.random().await?;
+        let challenge = channel.random().await?;
         let other_data = checkmac_other_data(slot.as_u8(), serial);
         let response = checkmac_response(expected_slot_value, &challenge, &other_data, serial);
 
-        match self.atecc.checkmac(slot, &challenge, &response, &other_data).await
+        let result = channel.checkmac(slot, &challenge, &response, &other_data).await;
+        channel.close().await?;
+
+        match result
         {
             Ok(true) => Ok(true),
             Ok(false) => Ok(false),
@@ -948,6 +1083,8 @@ where
     /// allows 4 tries (rather than 5), a PUK batch 9 (rather than 10).
     /// In exchange the host gains a reliable way to detect saturation,
     /// which enables [`Self::emergency_reset`].
+    ///
+    /// Reads the counter and all increments share one channel.
     async fn refresh_counter_batch
     (
         &mut self,
@@ -955,7 +1092,8 @@ where
         batch_size: u8,
     ) -> ServiceResult<(), H::Error>
     {
-        let current = self.atecc.counter_read(counter).await?;
+        let mut channel = self.atecc.open_channel().await?;
+        let current = channel.counter_read(counter).await?;
         let batch = u32::from(batch_size);
         let remainder = current % batch;
         // Target: remainder == 1 after refresh. Number of bumps:
@@ -980,16 +1118,23 @@ where
         {
             // Tolerate the chip refusing to bump further (counter at
             // its 2^21 hardware max).
-            match self.atecc.counter_increment(counter).await
+            match channel.counter_increment(counter).await
             {
                 Ok(_) => {}
                 Err(AteccError::Chip(ChipError::ExecutionError)) =>
                 {
+                    channel.close().await?;
                     return Ok(());
                 }
-                Err(other) => return Err(CryptoServiceError::Atecc(other)),
+                Err(other) =>
+                {
+                    // Best effort close on error: ignore the close result.
+                    let _ = channel.close().await;
+                    return Err(CryptoServiceError::Atecc(other));
+                }
             }
         }
+        channel.close().await?;
         Ok(())
     }
 
@@ -1005,6 +1150,9 @@ where
     /// 4. Host XOR-encrypts `plaintext` and computes the Write MAC.
     /// 5. `Write(slot, encrypted)` with `ciphertext || mac`.
     ///
+    /// All chip commands run within a single channel because `TempKey`
+    /// must survive from `Nonce` to the encrypted `Write`.
+    ///
     /// Used by [`Self::set_pin`] and [`Self::unblock_pin`] to update the
     /// PIN hash in slot 5.
     async fn write_slot_encrypted
@@ -1016,20 +1164,23 @@ where
         chip_serial: &[u8; CHIP_SERIAL_LEN],
     ) -> ServiceResult<(), H::Error>
     {
+        let mut channel = self.atecc.open_channel().await?;
+
         // 1. Generate a fresh nonce input and load it into TempKey.
-        let nonce_input = self.atecc.random().await?;
-        self.atecc.nonce_passthrough(NonceTarget::TempKey, &nonce_input).await?;
+        let nonce_input = channel.random().await?;
+        channel.nonce_passthrough(NonceTarget::TempKey, &nonce_input).await?;
 
         // 2. GenDig on the I/O key slot. The chip updates TempKey.
         let io_slot = SLOT_IO_KEY.as_u8();
-        self.atecc.gendig(GenDigZone::Data, u16::from(io_slot)).await?;
+        channel.gendig(GenDigZone::Data, u16::from(io_slot)).await?;
 
         // 3. Replicate the chip-side TempKey on the host.
         let session_key = derive_session_key(io_key, &nonce_input, io_slot, chip_serial);
 
         // 4. Encrypt and MAC the plaintext.
         let ciphertext = encrypt_payload(plaintext, &session_key);
-        let mac = write_mac(
+        let mac = write_mac
+        (
             &session_key,
             plaintext,
             target_slot,
@@ -1041,8 +1192,9 @@ where
         // 5. Write to the slot. Slot block 0, offset 0 (single 32-byte
         // block written).
         let address = data_address(target_slot, 0, 0);
-        self.atecc.write_32_encrypted(Zone::Data, address, &payload).await?;
+        channel.write_32_encrypted(Zone::Data, address, &payload).await?;
 
+        channel.close().await?;
         Ok(())
     }
 }
@@ -1058,44 +1210,32 @@ where
 /// - `count == 0` : freshly-provisioned chip, no verify attempted yet,
 ///   `batch_size` attempts remain.
 /// - `count % batch == 1` : freshly refreshed after a successful verify,
-///   `batch_size - 1` attempts remain.
-/// - `count % batch == r` (other values 2..=batch-1) : `batch - r` attempts
-///   remain in the current batch.
-/// - `count % batch == 0 && count > 0` : **the user has exhausted a full
-///   batch without ever verifying correctly.** Zero attempts remain;
-///   the slot needs an emergency reset (see
-///   [`CryptoService::emergency_reset`]).
-///
-/// This function does not differentiate between the just-refreshed state
-/// and the "no verify since boot" state otherwise: the caller must trust
-/// that the service has invoked `refresh_counter_batch` after every
-/// successful verify, which is the invariant enforced throughout this
-/// module.
+///   `batch_size - 1` attempts remain in the current batch.
+/// - `count % batch == r` in `2..batch` : `batch_size - r` attempts remain.
+/// - `count % batch == 0` with `count > 0` : SATURATION. The user has
+///   consumed a full batch with no successful verify in between. Returns
+///   0 attempts.
 fn retries_remaining(count: u32, batch_size: u8) -> u8
 {
     let batch = u32::from(batch_size);
     let remainder = count % batch;
+
+    if count == 0
+    {
+        return batch_size;
+    }
     if remainder == 0
     {
-        // Two sub-cases:
-        // - count == 0: fresh chip, batch_size attempts available.
-        // - count > 0 and multiple of batch: exhausted, no attempts.
-        if count == 0
-        {
-            batch_size
-        }
-        else
-        {
-            0
-        }
+        // Saturation: user consumed an entire batch without verifying.
+        return 0;
     }
-    else
+    if remainder == 1
     {
-        // (batch - remainder) is at most batch - 1, which fits in u8.
-        #[allow(clippy::cast_possible_truncation)]
-        let r = (batch - remainder) as u8;
-        r
+        // Freshly refreshed: full batch minus the refresh bump.
+        return batch_size - 1;
     }
+    // Mid-batch: batch - remainder is the count to the next multiple.
+    (batch - remainder) as u8
 }
 
 #[cfg(test)]
@@ -1104,55 +1244,42 @@ mod tests
     use super::*;
 
     #[test]
-    fn retries_remaining_fresh_chip()
+    fn retries_remaining_zero_returns_full_batch()
     {
-        // count == 0 means the chip has never been used: full batch
-        // available. This is the only case where a multiple-of-batch
-        // value translates to "batch_size remaining" rather than
-        // "saturated".
-        assert_eq!(retries_remaining(0, 5),  5);
+        assert_eq!(retries_remaining(0, 5), 5);
         assert_eq!(retries_remaining(0, 10), 10);
     }
 
     #[test]
-    fn retries_remaining_decreases_with_each_failure()
+    fn retries_remaining_remainder_one_returns_batch_minus_one()
     {
-        // 1 to 4 failures within a fresh batch.
+        // Just refreshed after a successful verify.
         assert_eq!(retries_remaining(1, 5), 4);
+        assert_eq!(retries_remaining(6, 5), 4);
+        assert_eq!(retries_remaining(11, 5), 4);
+
+        assert_eq!(retries_remaining(1, 10), 9);
+        assert_eq!(retries_remaining(11, 10), 9);
+    }
+
+    #[test]
+    fn retries_remaining_mid_batch_counts_down()
+    {
+        // remainder 2 -> batch - 2 = 3 tries left (for batch 5).
         assert_eq!(retries_remaining(2, 5), 3);
         assert_eq!(retries_remaining(3, 5), 2);
         assert_eq!(retries_remaining(4, 5), 1);
     }
 
     #[test]
-    fn retries_remaining_zero_when_batch_exhausted()
+    fn retries_remaining_saturation_at_multiple_returns_zero()
     {
-        // count > 0 and on a multiple of batch_size = saturated, no
-        // attempts left. This is the input that the emergency reset
-        // path uses to confirm "the user has hit the wall".
-        assert_eq!(retries_remaining(5, 5),  0);
+        // The 5th, 10th, 15th attempt without a successful verify
+        // lands count on a multiple of 5, signalling saturation.
+        assert_eq!(retries_remaining(5, 5), 0);
         assert_eq!(retries_remaining(10, 5), 0);
         assert_eq!(retries_remaining(15, 5), 0);
         assert_eq!(retries_remaining(10, 10), 0);
         assert_eq!(retries_remaining(20, 10), 0);
-    }
-
-    #[test]
-    fn retries_remaining_after_refresh_to_plus_one()
-    {
-        // After refresh_counter_batch bumps to next_multiple + 1, the
-        // caller sees batch_size - 1 attempts remaining: a fresh batch
-        // costs one attempt to "pay for" the unambiguous tracking.
-        assert_eq!(retries_remaining(6,  5),  4); // multiple+1
-        assert_eq!(retries_remaining(11, 5),  4);
-        assert_eq!(retries_remaining(11, 10), 9);
-        assert_eq!(retries_remaining(21, 10), 9);
-    }
-
-    #[test]
-    fn retries_remaining_puk_batch_mid()
-    {
-        assert_eq!(retries_remaining(3,  10), 7);
-        assert_eq!(retries_remaining(15, 10), 5);
     }
 }

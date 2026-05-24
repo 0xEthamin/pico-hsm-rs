@@ -185,7 +185,7 @@ pub(crate) fn write_mac
 }
 
 /// Assemble the 64-byte payload (`ciphertext || mac`) that the driver
-/// expects in [`atecc608b::Atecc::write_32_encrypted`].
+/// expects in [`atecc608b::AteccChannel::write_32_encrypted`].
 #[must_use]
 pub(crate) fn build_encrypted_write_payload
 (

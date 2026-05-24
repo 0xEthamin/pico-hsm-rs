@@ -30,7 +30,7 @@
 //! Reference: `CryptoAuthLib` `lib/calib/calib_counter.c`, constants
 //! `COUNTER_MODE_READ` (0x00), `COUNTER_MODE_INCREMENT` (0x01).
 
-use crate::driver::Atecc;
+use crate::driver::AteccChannel;
 use crate::error::AteccError;
 use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_COUNTER_MS, OP_COUNTER};
@@ -66,15 +66,16 @@ impl CounterId
     }
 }
 
-impl<H> Atecc<H>
+impl<'a, H> AteccChannel<'a, H>
 where
     H: AteccHal,
 {
     /// Read the current value of a counter without modifying it.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`].
-    pub async fn counter_read(
+    /// See [`AteccChannel::execute_command`].
+    pub async fn counter_read
+    (
         &mut self,
         counter: CounterId,
     ) -> Result<u32, AteccError<H::Error>>
@@ -85,10 +86,11 @@ where
     /// Increment a counter by 1 and return its new value.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`]. The chip returns
+    /// See [`AteccChannel::execute_command`]. The chip returns
     /// [`crate::error::ChipError::ExecutionError`] when the counter has
     /// reached its maximum value of `2^21 - 1`.
-    pub async fn counter_increment(
+    pub async fn counter_increment
+    (
         &mut self,
         counter: CounterId,
     ) -> Result<u32, AteccError<H::Error>>
@@ -96,7 +98,8 @@ where
         self.counter_internal(COUNTER_MODE_INCREMENT, counter).await
     }
 
-    async fn counter_internal(
+    async fn counter_internal
+    (
         &mut self,
         mode: u8,
         counter: CounterId,
@@ -105,7 +108,8 @@ where
         // Response: count(1) + 4 little-endian counter + crc(2) = 7 bytes.
         let mut response_buf = [0u8; 1 + 4 + 2];
         let payload = self
-            .execute_command(
+            .execute_command
+            (
                 OP_COUNTER,
                 mode,
                 counter.as_param2(),

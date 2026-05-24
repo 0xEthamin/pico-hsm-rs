@@ -26,12 +26,7 @@
 //!    implicitly. The user invokes Lock manually through a dedicated USB-HID
 //!    command, with a magic word and a CRC of the expected state.
 //!
-//! 2. **Every function is marked `unsafe`.** Not because it violates Rust
-//!    memory safety, but to force the caller to write `unsafe { ... }`. That
-//!    syntactic barrier is the only Rust-level mechanism we have to flag
-//!    operational danger.
-//!
-//! 3. **Every function takes an explicit confirmation parameter.** For zone
+//! 2. **Every function takes an explicit confirmation parameter.** For zone
 //!    locks the caller supplies the CRC-16 of the zone as it currently is
 //!    on the chip. The chip itself recomputes and compares against the value
 //!    sent in `param2`. A mismatch is rejected with a chip error. The
@@ -79,7 +74,7 @@
 use crate::error::AteccError;
 use crate::opcodes::{EXEC_TIME_LOCK_MS, OP_LOCK};
 use crate::slot::Slot;
-use crate::{Atecc, AteccHal};
+use crate::{AteccChannel, AteccHal};
 
 /// Mode bits for a config-zone lock, with CRC verification.
 const LOCK_MODE_CONFIG_ZONE_VERIFY_CRC: u8 = 0b0000_0000;
@@ -90,7 +85,7 @@ const LOCK_MODE_DATA_ZONE_VERIFY_CRC: u8 = 0b0000_0001;
 /// Mode bits for an individual slot lock, no CRC verification.
 const LOCK_MODE_SLOT_NO_CRC_BASE: u8 = 0b1000_0010;
 
-impl<H: AteccHal> Atecc<H>
+impl<'a, H: AteccHal> AteccChannel<'a, H>
 {
     /// Permanently lock the configuration zone.
     ///
@@ -110,8 +105,8 @@ impl<H: AteccHal> Atecc<H>
     /// check is a backstop, not a substitute.
     ///
     /// # Errors
-    /// - [`AteccError::Chip(ChipError::ExecutionError)`] if the CRC does
-    ///   not match (zone stays unlocked).
+    /// - [`AteccError::Chip`] with `ChipError::ExecutionError` if the CRC
+    ///   does not match (zone stays unlocked).
     /// - Other [`AteccError`] variants for I2C or wake failures.
     pub async fn lock_config_zone
     (
@@ -141,7 +136,7 @@ impl<H: AteccHal> Atecc<H>
     /// host believes them to be. The chip recomputes and compares.
     ///
     /// # Errors
-    /// As for `lock_config_zone`.
+    /// As for [`Self::lock_config_zone`].
     pub async fn lock_data_zone
     (
         &mut self,
@@ -167,8 +162,8 @@ impl<H: AteccHal> Atecc<H>
     /// `Lockable` bit set, or the chip rejects this command.
     ///
     /// # Errors
-    /// - [`AteccError::Chip(ChipError::ExecutionError)`] if the slot is
-    ///   not lockable or already locked.
+    /// - [`AteccError::Chip`] with `ChipError::ExecutionError` if the slot
+    ///   is not lockable or already locked.
     /// - Other [`AteccError`] variants for I2C or wake failures.
     pub async fn lock_slot
     (

@@ -22,7 +22,7 @@
 //!
 //! Reference: `CryptoAuthLib` `lib/calib/calib_info.c`.
 
-use crate::driver::Atecc;
+use crate::driver::AteccChannel;
 use crate::error::AteccError;
 use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_INFO_MS, OP_INFO};
@@ -31,6 +31,7 @@ use crate::opcodes::{EXEC_TIME_INFO_MS, OP_INFO};
 ///
 /// Source: `CryptoAuthLib` `lib/calib/calib_command.h`, `INFO_MODE_*` constants.
 #[repr(u8)]
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum InfoMode
 {
@@ -47,7 +48,7 @@ pub(crate) enum InfoMode
     VolatileKeyPermission = 0x04,
 }
 
-impl<H> Atecc<H>
+impl<'a, H> AteccChannel<'a, H>
 where
     H: AteccHal,
 {
@@ -59,12 +60,13 @@ where
     /// (`0x02` for M0, `0x03` for M1, `0x04` for M2).
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`].
+    /// See [`AteccChannel::execute_command`].
     pub async fn info_revision(&mut self) -> Result<[u8; 4], AteccError<H::Error>>
     {
         let mut response_buf = [0u8; 7];
         let payload = self
-            .execute_command(
+            .execute_command
+            (
                 OP_INFO,
                 InfoMode::Revision as u8,
                 0x0000,

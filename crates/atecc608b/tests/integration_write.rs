@@ -50,6 +50,11 @@ fn expect_wake(hal: &mut MockHal)
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 
+fn expect_idle(hal: &mut MockHal)
+{
+    hal.expect_i2c_write(ADDR, &[0x02]);
+}
+
 /// Build a status response frame: `04 <status> <crc_lo> <crc_hi>`.
 fn status_response(status: u8) -> [u8; 4]
 {
@@ -103,11 +108,14 @@ fn write_4_config_block_2_offset_5_cleartext()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 45, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
     let payload = [0xCA, 0xFE, 0xBA, 0xBE];
-    block_on(atecc.write_4(Zone::Config, config_or_otp_address(2, 5), &payload))
+    block_on(channel.write_4(Zone::Config, config_or_otp_address(2, 5), &payload))
         .expect("write_4");
 
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -142,9 +150,12 @@ fn write_slot_word_uses_data_zone_address()
     expect_command_round_trip(&mut hal, &command, 45, &response);
 
     let slot = Slot::const_new(0);
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.write_slot_word(slot, 0, 0, &payload)).expect("write_slot_word");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.write_slot_word(slot, 0, 0, &payload)).expect("write_slot_word");
 
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -186,9 +197,12 @@ fn write_32_data_slot_8_block_0_cleartext()
     expect_command_round_trip(&mut hal, &command, 45, &response);
 
     let slot = Slot::const_new(8);
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.write_slot_block(slot, 0, &data)).expect("write_slot_block");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.write_slot_block(slot, 0, &data)).expect("write_slot_block");
 
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -222,10 +236,13 @@ fn write_32_uses_raw_address_api()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 45, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.write_32(Zone::Data, data_address(slot, 0, 0), &data))
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.write_32(Zone::Data, data_address(slot, 0, 0), &data))
         .expect("write_32");
 
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -265,10 +282,13 @@ fn write_32_encrypted_data_slot_5()
     expect_command_round_trip(&mut hal, &command, 45, &response);
 
     let slot = Slot::const_new(5);
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.write_32_encrypted(Zone::Data, data_address(slot, 0, 0), &data))
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.write_32_encrypted(Zone::Data, data_address(slot, 0, 0), &data))
         .expect("write_32_encrypted");
 
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -299,15 +319,18 @@ fn write_propagates_chip_execution_error()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 45, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
     let payload: [u8; WORD_SIZE] = [0x01, 0x02, 0x03, 0x04];
-    let err = block_on(atecc.write_4(Zone::Config, 0, &payload)).unwrap_err();
+    let err = block_on(channel.write_4(Zone::Config, 0, &payload)).unwrap_err();
 
     match err
     {
         AteccError::Chip(ChipError::ExecutionError) => {}
         other => panic!("expected Chip(ExecutionError), got {other:?}"),
     }
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -343,14 +366,17 @@ fn write_rejects_payload_response_as_malformed()
     // 4-byte buffer. No further i2c_read should follow.
     hal.expect_i2c_read(ADDR, &bogus_response[0..1]);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
     let payload: [u8; WORD_SIZE] = [0xAA, 0xBB, 0xCC, 0xDD];
-    let err = block_on(atecc.write_4(Zone::Config, 0, &payload)).unwrap_err();
+    let err = block_on(channel.write_4(Zone::Config, 0, &payload)).unwrap_err();
 
     match err
     {
         AteccError::MalformedResponse => {}
         other => panic!("expected MalformedResponse, got {other:?}"),
     }
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }

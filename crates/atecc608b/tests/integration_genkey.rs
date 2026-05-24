@@ -33,6 +33,11 @@ fn expect_wake(hal: &mut MockHal)
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 
+fn expect_idle(hal: &mut MockHal)
+{
+    hal.expect_i2c_write(ADDR, &[0x02]);
+}
+
 fn response_frame_64(payload: &[u8; PUBLIC_KEY_SIZE]) -> [u8; 67]
 {
     let mut out = [0u8; 67];
@@ -75,10 +80,13 @@ fn genkey_create_slot_0_returns_pubkey()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 215, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let result = block_on(atecc.genkey_create(Slot::const_new(0))).expect("genkey_create");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let result = block_on(channel.genkey_create(Slot::const_new(0))).expect("genkey_create");
 
     assert_eq!(result, pubkey);
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -95,10 +103,13 @@ fn genkey_public_slot_0_uses_mode_zero()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 215, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let result = block_on(atecc.genkey_public(Slot::const_new(0))).expect("genkey_public");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let result = block_on(channel.genkey_public(Slot::const_new(0))).expect("genkey_public");
 
     assert_eq!(result, pubkey);
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -115,9 +126,12 @@ fn genkey_create_slot_1_changes_param2()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 215, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let result = block_on(atecc.genkey_public(Slot::const_new(1))).expect("genkey_public slot 1");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let result = block_on(channel.genkey_public(Slot::const_new(1))).expect("genkey_public slot 1");
 
     assert_eq!(result, pubkey);
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }

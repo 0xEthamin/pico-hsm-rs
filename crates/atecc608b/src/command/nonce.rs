@@ -39,7 +39,7 @@
 //! `NONCE_MODE_TARGET_TEMPKEY` (0x00), `NONCE_MODE_TARGET_MSGDIGBUF` (0x40),
 //! `NONCE_NUMIN_SIZE` (20), `NONCE_NUMIN_SIZE_PASSTHROUGH` (32).
 
-use crate::driver::Atecc;
+use crate::driver::AteccChannel;
 use crate::error::AteccError;
 use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_NONCE_MS, OP_NONCE};
@@ -89,7 +89,7 @@ impl NonceTarget
     }
 }
 
-impl<H> Atecc<H>
+impl<'a, H> AteccChannel<'a, H>
 where
     H: AteccHal,
 {
@@ -105,8 +105,9 @@ where
     /// it is a service-layer concern.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`].
-    pub async fn nonce_random(
+    /// See [`AteccChannel::execute_command`].
+    pub async fn nonce_random
+    (
         &mut self,
         num_in: &[u8; NONCE_NUMIN_SIZE],
     ) -> Result<[u8; NONCE_NUMOUT_SIZE], AteccError<H::Error>>
@@ -114,7 +115,8 @@ where
         // Response: count(1) + 32 NumOut + crc(2) = 35 bytes.
         let mut response_buf = [0u8; 1 + NONCE_NUMOUT_SIZE + 2];
         let payload = self
-            .execute_command(
+            .execute_command
+            (
                 OP_NONCE,
                 NONCE_MODE_RANDOM,
                 0x0000,
@@ -137,15 +139,17 @@ where
     /// of a `Sign` call.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command_status`].
-    pub async fn nonce_passthrough(
+    /// See [`AteccChannel::execute_command_status`].
+    pub async fn nonce_passthrough
+    (
         &mut self,
         target: NonceTarget,
         value: &[u8; NONCE_PASSTHROUGH_SIZE],
     ) -> Result<(), AteccError<H::Error>>
     {
         let param1 = NONCE_MODE_PASSTHROUGH | target.as_param1_bits();
-        self.execute_command_status(
+        self.execute_command_status
+        (
             OP_NONCE,
             param1,
             0x0000,

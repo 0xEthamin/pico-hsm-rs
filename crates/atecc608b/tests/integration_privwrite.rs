@@ -33,6 +33,11 @@ fn expect_wake(hal: &mut MockHal)
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 
+fn expect_idle(hal: &mut MockHal)
+{
+    hal.expect_i2c_write(ADDR, &[0x02]);
+}
+
 fn status_response(status: u8) -> [u8; 4]
 {
     let mut out = [0u8; 4];
@@ -85,9 +90,12 @@ fn privwrite_cleartext_slot_0_zero_key()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 50, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.privwrite_cleartext(Slot::const_new(0), &priv_key))
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.privwrite_cleartext(Slot::const_new(0), &priv_key))
         .expect("privwrite_cleartext");
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -117,14 +125,17 @@ fn privwrite_cleartext_propagates_chip_execution_error()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 50, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let err = block_on(atecc.privwrite_cleartext(Slot::const_new(0), &priv_key)).unwrap_err();
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let err = block_on(channel.privwrite_cleartext(Slot::const_new(0), &priv_key)).unwrap_err();
 
     match err
     {
         AteccError::Chip(ChipError::ExecutionError) => {}
         other => panic!("expected Chip(ExecutionError), got {other:?}"),
     }
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 

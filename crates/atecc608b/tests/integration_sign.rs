@@ -33,6 +33,11 @@ fn expect_wake(hal: &mut MockHal)
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 
+fn expect_idle(hal: &mut MockHal)
+{
+    hal.expect_i2c_write(ADDR, &[0x02]);
+}
+
 fn response_frame_64(payload: &[u8; SIGNATURE_SIZE]) -> [u8; 67]
 {
     let mut out = [0u8; 67];
@@ -77,9 +82,12 @@ fn sign_external_slot_0_returns_64_byte_signature()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 220, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let result = block_on(atecc.sign_external(Slot::const_new(0))).expect("sign_external");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let result = block_on(channel.sign_external(Slot::const_new(0))).expect("sign_external");
 
     assert_eq!(result, sig);
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }

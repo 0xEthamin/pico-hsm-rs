@@ -20,12 +20,12 @@
 //!
 //! Two operating modes are exposed:
 //!
-//! - [`Atecc::genkey_create`]: instruct the chip to generate a new P-256
+//! - [`AteccChannel::genkey_create`]: instruct the chip to generate a new P-256
 //!   private key entirely on-chip in the target slot. The private key never
 //!   leaves the device. The corresponding 64-byte public key is returned.
 //!   Subject to `KeyConfig.Private` and the data zone lock state.
 //!
-//! - [`Atecc::genkey_public`]: compute and output the public key
+//! - [`AteccChannel::genkey_public`]: compute and output the public key
 //!   corresponding to the private key already stored in the target slot.
 //!   Read-only operation, useful at boot to retrieve the chip's identity
 //!   without re-generating the private key.
@@ -44,7 +44,7 @@
 //! sec1 = [0x04] || X || Y
 //! ```
 
-use crate::driver::Atecc;
+use crate::driver::AteccChannel;
 use crate::error::AteccError;
 use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_GENKEY_MS, OP_GENKEY};
@@ -60,7 +60,7 @@ const GENKEY_MODE_CREATE: u8 = 0x04;
 /// key in the slot.
 const GENKEY_MODE_PUBLIC: u8 = 0x00;
 
-impl<H> Atecc<H>
+impl<'a, H> AteccChannel<'a, H>
 where
     H: AteccHal,
 {
@@ -70,11 +70,12 @@ where
     /// public key (uncompressed `X || Y`) is returned.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`]. Common chip errors include attempting
-    /// to write a slot configured `KeyConfig.Private = 0` or attempting to
-    /// regenerate a slot whose `SlotConfig.WriteConfig` forbids it after
-    /// data zone lock.
-    pub async fn genkey_create(
+    /// See [`AteccChannel::execute_command`]. Common chip errors include
+    /// attempting to write a slot configured `KeyConfig.Private = 0` or
+    /// attempting to regenerate a slot whose `SlotConfig.WriteConfig`
+    /// forbids it after data zone lock.
+    pub async fn genkey_create
+    (
         &mut self,
         slot: Slot,
     ) -> Result<[u8; PUBLIC_KEY_SIZE], AteccError<H::Error>>
@@ -86,8 +87,9 @@ where
     /// in the target slot. Does not modify chip state.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`].
-    pub async fn genkey_public(
+    /// See [`AteccChannel::execute_command`].
+    pub async fn genkey_public
+    (
         &mut self,
         slot: Slot,
     ) -> Result<[u8; PUBLIC_KEY_SIZE], AteccError<H::Error>>
@@ -95,7 +97,8 @@ where
         self.genkey_internal(GENKEY_MODE_PUBLIC, slot).await
     }
 
-    async fn genkey_internal(
+    async fn genkey_internal
+    (
         &mut self,
         mode: u8,
         slot: Slot,
@@ -105,7 +108,8 @@ where
         let mut response_buf = [0u8; 1 + PUBLIC_KEY_SIZE + 2];
         let param2 = u16::from(slot.as_u8());
         let payload = self
-            .execute_command(
+            .execute_command
+            (
                 OP_GENKEY,
                 mode,
                 param2,

@@ -16,11 +16,13 @@
 //! Integration test exercising the full Info command pipeline.
 //!
 //! Verifies that:
-//! 1. The driver performs the wake sequence on the first call.
+//! 1. Opening a channel performs the wake sequence.
 //! 2. The Info command frame is serialized exactly as the chip expects.
 //! 3. The chip's revision response is parsed correctly.
-//! 4. Calling info_revision a second time skips the wake (already awake).
-//! 5. After explicit idle(), a subsequent call wakes the chip again.
+//! 4. Multiple commands can be issued within a single channel without
+//!    re-waking.
+//! 5. Closing the channel sends the idle token, and the next channel
+//!    triggers a fresh wake.
 
 mod common;
 
@@ -50,6 +52,12 @@ fn expect_wake(hal: &mut MockHal)
     hal.expect_i2c_read(0x60, &WAKE_RESPONSE);
 }
 
+/// Setup the mock to expect exactly one idle write (the channel close).
+fn expect_idle(hal: &mut MockHal)
+{
+    hal.expect_i2c_write(0x60, &[0x02]);
+}
+
 /// Setup the mock to expect one full Info(Revision) round-trip including the
 /// command write, execution delay, count-byte read, and payload read.
 fn expect_info_revision_m0(hal: &mut MockHal)
@@ -70,48 +78,59 @@ fn info_revision_full_pipeline()
     let mut hal = MockHal::new();
     expect_wake(&mut hal);
     expect_info_revision_m0(&mut hal);
+    expect_idle(&mut hal);
 
     let mut atecc = Atecc::new(hal);
-    let revision = block_on(atecc.info_revision()).expect("info_revision");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let revision = block_on(channel.info_revision()).expect("info_revision");
+    block_on(channel.close()).expect("close");
 
     assert_eq!(revision, [0x00, 0x00, 0x60, 0x02]);
     atecc.into_hal().verify();
 }
 
 #[test]
-fn second_call_skips_wake()
+fn two_commands_in_one_channel_share_a_single_wake()
 {
     let mut hal = MockHal::new();
-    // First call: wake then Info.
+    // One wake, then two Info commands back-to-back, then one idle close.
     expect_wake(&mut hal);
     expect_info_revision_m0(&mut hal);
-    // Second call: NO wake, just Info.
     expect_info_revision_m0(&mut hal);
+    expect_idle(&mut hal);
 
     let mut atecc = Atecc::new(hal);
-    let _ = block_on(atecc.info_revision()).expect("first info_revision");
-    let revision2 = block_on(atecc.info_revision()).expect("second info_revision");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let _ = block_on(channel.info_revision()).expect("first info_revision");
+    let revision2 = block_on(channel.info_revision()).expect("second info_revision");
+    block_on(channel.close()).expect("close");
 
     assert_eq!(revision2, [0x00, 0x00, 0x60, 0x02]);
     atecc.into_hal().verify();
 }
 
 #[test]
-fn idle_forces_rewake()
+fn closing_then_reopening_triggers_fresh_wake()
 {
     let mut hal = MockHal::new();
+    // First channel: wake, Info, idle.
     expect_wake(&mut hal);
     expect_info_revision_m0(&mut hal);
-    // Idle is just a single-byte I2C write of the idle word address (0x02).
-    hal.expect_i2c_write(0x60, &[0x02]);
-    // Next call should wake again.
+    expect_idle(&mut hal);
+    // Second channel: fresh wake, Info, idle.
     expect_wake(&mut hal);
     expect_info_revision_m0(&mut hal);
+    expect_idle(&mut hal);
 
     let mut atecc = Atecc::new(hal);
-    let _ = block_on(atecc.info_revision()).expect("first info_revision");
-    block_on(atecc.idle()).expect("idle");
-    let _ = block_on(atecc.info_revision()).expect("second info_revision");
+
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel 1");
+    let _ = block_on(channel.info_revision()).expect("info_revision 1");
+    block_on(channel.close()).expect("close 1");
+
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel 2");
+    let _ = block_on(channel.info_revision()).expect("info_revision 2");
+    block_on(channel.close()).expect("close 2");
 
     atecc.into_hal().verify();
 }
@@ -139,9 +158,13 @@ fn polling_handles_chip_busy_then_ready()
     // 4. Fourth attempt succeeds. Count byte first, then the payload.
     hal.expect_i2c_read(0x60, &INFO_RESPONSE_M0[0..1]);
     hal.expect_i2c_read(0x60, &INFO_RESPONSE_M0[1..7]);
+    // 5. Close.
+    expect_idle(&mut hal);
 
     let mut atecc = Atecc::new(hal);
-    let revision = block_on(atecc.info_revision()).expect("info_revision under polling");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let revision = block_on(channel.info_revision()).expect("info_revision under polling");
+    block_on(channel.close()).expect("close");
     assert_eq!(revision, [0x00, 0x00, 0x60, 0x02]);
     atecc.into_hal().verify();
 }

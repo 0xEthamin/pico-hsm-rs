@@ -33,6 +33,11 @@ fn expect_wake(hal: &mut MockHal)
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 
+fn expect_idle(hal: &mut MockHal)
+{
+    hal.expect_i2c_write(ADDR, &[0x02]);
+}
+
 fn status_response(status: u8) -> [u8; 4]
 {
     let mut out = [0u8; 4];
@@ -69,8 +74,11 @@ fn gendig_data_slot_8_uses_zone_data()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 25, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.gendig(GenDigZone::Data, 0x0008)).expect("gendig");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.gendig(GenDigZone::Data, 0x0008)).expect("gendig");
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -85,8 +93,11 @@ fn gendig_config_block_0()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 25, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.gendig(GenDigZone::Config, 0x0000)).expect("gendig");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.gendig(GenDigZone::Config, 0x0000)).expect("gendig");
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -101,7 +112,10 @@ fn gendig_data_slot_0()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 25, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.gendig(GenDigZone::Data, 0x0000)).expect("gendig");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.gendig(GenDigZone::Data, 0x0000)).expect("gendig");
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }

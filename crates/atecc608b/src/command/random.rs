@@ -22,7 +22,7 @@
 //!
 //! Reference: `CryptoAuthLib` `lib/calib/calib_random.c`.
 
-use crate::driver::Atecc;
+use crate::driver::AteccChannel;
 use crate::error::AteccError;
 use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_RANDOM_MS, OP_RANDOM};
@@ -30,7 +30,7 @@ use crate::opcodes::{EXEC_TIME_RANDOM_MS, OP_RANDOM};
 /// Number of random bytes returned by the chip in one Random command.
 pub(crate) const RANDOM_OUTPUT_LEN: usize = 32;
 
-impl<H> Atecc<H>
+impl<'a, H> AteccChannel<'a, H>
 where
     H: AteccHal,
 {
@@ -39,13 +39,14 @@ where
     /// The chip reseeds its internal RNG before producing the output.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`].
+    /// See [`AteccChannel::execute_command`].
     pub async fn random(&mut self) -> Result<[u8; RANDOM_OUTPUT_LEN], AteccError<H::Error>>
     {
         // Response: count(1) + 32 data + crc(2) = 35 bytes.
         let mut response_buf = [0u8; 35];
         let payload = self
-            .execute_command(
+            .execute_command
+            (
                 OP_RANDOM,
                 0x00,
                 0x0000,

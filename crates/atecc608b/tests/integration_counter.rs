@@ -33,6 +33,11 @@ fn expect_wake(hal: &mut MockHal)
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 
+fn expect_idle(hal: &mut MockHal)
+{
+    hal.expect_i2c_write(ADDR, &[0x02]);
+}
+
 fn response_frame_u32(value: u32) -> [u8; 7]
 {
     let mut out = [0u8; 7];
@@ -45,7 +50,8 @@ fn response_frame_u32(value: u32) -> [u8; 7]
     out
 }
 
-fn expect_command_round_trip(
+fn expect_command_round_trip
+(
     hal: &mut MockHal,
     command_wire: &[u8],
     exec_ms: u32,
@@ -69,9 +75,12 @@ fn counter_read_counter0_returns_value()
     let mut hal = MockHal::new();
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 25, &response);
+    expect_idle(&mut hal);
 
     let mut atecc = Atecc::new(hal);
-    let value = block_on(atecc.counter_read(CounterId::Counter0)).expect("counter_read");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let value = block_on(channel.counter_read(CounterId::Counter0)).expect("counter_read");
+    block_on(channel.close()).expect("close");
 
     assert_eq!(value, 5);
     atecc.into_hal().verify();
@@ -88,10 +97,13 @@ fn counter_increment_counter0_returns_new_value()
     let mut hal = MockHal::new();
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 25, &response);
+    expect_idle(&mut hal);
 
     let mut atecc = Atecc::new(hal);
-    let value = block_on(atecc.counter_increment(CounterId::Counter0))
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let value = block_on(channel.counter_increment(CounterId::Counter0))
         .expect("counter_increment");
+    block_on(channel.close()).expect("close");
 
     assert_eq!(value, 6);
     atecc.into_hal().verify();
@@ -108,9 +120,12 @@ fn counter_read_counter1_uses_param2_one()
     let mut hal = MockHal::new();
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 25, &response);
+    expect_idle(&mut hal);
 
     let mut atecc = Atecc::new(hal);
-    let value = block_on(atecc.counter_read(CounterId::Counter1)).expect("counter_read");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let value = block_on(channel.counter_read(CounterId::Counter1)).expect("counter_read");
+    block_on(channel.close()).expect("close");
 
     assert_eq!(value, 123_456);
     atecc.into_hal().verify();
@@ -136,9 +151,12 @@ fn counter_value_is_little_endian()
     let mut hal = MockHal::new();
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &COMMAND, 25, &response);
+    expect_idle(&mut hal);
 
     let mut atecc = Atecc::new(hal);
-    let value = block_on(atecc.counter_read(CounterId::Counter0)).expect("counter_read");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let value = block_on(channel.counter_read(CounterId::Counter0)).expect("counter_read");
+    block_on(channel.close()).expect("close");
 
     assert_eq!(value, 256);
     atecc.into_hal().verify();

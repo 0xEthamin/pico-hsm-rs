@@ -241,7 +241,8 @@ impl AteccHal for MockHal
         }
     }
 
-    async fn pulse_sda_low(
+    async fn pulse_sda_low
+    (
         &mut self,
         duration_us: u32,
     ) -> Result<(), Self::Error>

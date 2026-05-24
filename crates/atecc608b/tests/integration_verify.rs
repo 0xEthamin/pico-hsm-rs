@@ -34,6 +34,11 @@ fn expect_wake(hal: &mut MockHal)
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 
+fn expect_idle(hal: &mut MockHal)
+{
+    hal.expect_i2c_write(ADDR, &[0x02]);
+}
+
 fn status_response(status: u8) -> [u8; 4]
 {
     let mut out = [0u8; 4];
@@ -97,11 +102,14 @@ fn verify_external_success_returns_true()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 295, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let ok = block_on(atecc.verify_external(&signature, &public_key))
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let ok = block_on(channel.verify_external(&signature, &public_key))
         .expect("verify_external");
 
     assert!(ok);
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -120,10 +128,13 @@ fn verify_external_miscompare_returns_false()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 295, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let ok = block_on(atecc.verify_external(&signature, &public_key))
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let ok = block_on(channel.verify_external(&signature, &public_key))
         .expect("verify_external");
 
     assert!(!ok);
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }

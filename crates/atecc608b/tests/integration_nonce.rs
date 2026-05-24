@@ -41,6 +41,11 @@ fn expect_wake(hal: &mut MockHal)
     hal.expect_i2c_read(ADDR, &WAKE_RESPONSE);
 }
 
+fn expect_idle(hal: &mut MockHal)
+{
+    hal.expect_i2c_write(ADDR, &[0x02]);
+}
+
 /// Build a status response frame: `04 <status> <crc_lo> <crc_hi>`.
 fn status_response(status: u8) -> [u8; 4]
 {
@@ -128,10 +133,13 @@ fn nonce_random_returns_chip_num_out()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 20, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let result = block_on(atecc.nonce_random(&num_in)).expect("nonce_random");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let result = block_on(channel.nonce_random(&num_in)).expect("nonce_random");
 
     assert_eq!(result, num_out);
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -174,10 +182,13 @@ fn nonce_passthrough_tempkey_loads_value_verbatim()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 20, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.nonce_passthrough(NonceTarget::TempKey, &value))
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.nonce_passthrough(NonceTarget::TempKey, &value))
         .expect("nonce_passthrough TempKey");
 
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -212,10 +223,13 @@ fn nonce_passthrough_msgdigbuf_sets_target_bit()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 20, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    block_on(atecc.nonce_passthrough(NonceTarget::MsgDigBuf, &value))
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    block_on(channel.nonce_passthrough(NonceTarget::MsgDigBuf, &value))
         .expect("nonce_passthrough MsgDigBuf");
 
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -248,14 +262,17 @@ fn nonce_passthrough_propagates_chip_parse_error()
     expect_wake(&mut hal);
     expect_command_round_trip(&mut hal, &command, 20, &response);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let err = block_on(atecc.nonce_passthrough(NonceTarget::TempKey, &value)).unwrap_err();
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let err = block_on(channel.nonce_passthrough(NonceTarget::TempKey, &value)).unwrap_err();
 
     match err
     {
         AteccError::Chip(ChipError::ParseError) => {}
         other => panic!("expected Chip(ParseError), got {other:?}"),
     }
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }
 
@@ -309,11 +326,14 @@ fn nonce_random_then_passthrough_share_one_wake()
     // Crucially: NO second wake here.
     expect_command_round_trip(&mut hal, &cmd2, 20, &resp2);
 
+    expect_idle(&mut hal);
     let mut atecc = Atecc::new(hal);
-    let returned_num_out = block_on(atecc.nonce_random(&num_in)).expect("nonce_random");
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    let returned_num_out = block_on(channel.nonce_random(&num_in)).expect("nonce_random");
     assert_eq!(returned_num_out, num_out);
-    block_on(atecc.nonce_passthrough(NonceTarget::TempKey, &value))
+    block_on(channel.nonce_passthrough(NonceTarget::TempKey, &value))
         .expect("nonce_passthrough");
 
+    block_on(channel.close()).expect("close");
     atecc.into_hal().verify();
 }

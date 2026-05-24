@@ -47,7 +47,8 @@
 
 use crate::error::AteccError;
 use crate::hal::AteccHal;
-use crate::opcodes::{
+use crate::opcodes::
+{
     WAKE_DELAY_US,
     WAKE_LOW_DURATION_US,
     WAKE_RESPONSE_OK,
@@ -113,7 +114,9 @@ where
 
 /// Put the chip into deep sleep.
 ///
-/// Volatile state is cleared. The next operation will need a fresh wake.
+/// Sleep clears volatile state (`TempKey`, RNG seed) and brings the chip
+/// to its lowest power consumption level. The next command requires a
+/// fresh wake sequence (which is the same cost as wake-from-idle).
 ///
 /// # Errors
 /// [`AteccError::Hal`] if the I2C write fails.

@@ -22,9 +22,9 @@
 //!
 //! In this project's provisioning flow:
 //!
-//! 1. The host calls [`crate::command::nonce::Atecc::nonce_random`] to
+//! 1. The host calls [`crate::command::nonce::AteccChannel::nonce_random`] to
 //!    establish a shared `TempKey` value between host and chip.
-//! 2. The host calls [`Atecc::gendig`] with the I/O Protection Key slot
+//! 2. The host calls [`AteccChannel::gendig`] with the I/O Protection Key slot
 //!    (slot 8). The chip computes
 //!    `SHA256(IOKey || OpCode || Mode || KeyId || SN || padding || TempKey)`
 //!    and replaces `TempKey` with the result. The host computes the same
@@ -39,7 +39,7 @@
 //! `GENDIG_ZONE_CONFIG` (0x00), `GENDIG_ZONE_OTP` (0x01),
 //! `GENDIG_ZONE_DATA` (0x02).
 
-use crate::driver::Atecc;
+use crate::driver::AteccChannel;
 use crate::error::AteccError;
 use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_GENDIG_MS, OP_GENDIG};
@@ -71,7 +71,7 @@ impl GenDigZone
     }
 }
 
-impl<H> Atecc<H>
+impl<'a, H> AteccChannel<'a, H>
 where
     H: AteccHal,
 {
@@ -83,14 +83,16 @@ where
     /// The chip responds with a status-only frame on success.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command_status`].
-    pub async fn gendig(
+    /// See [`AteccChannel::execute_command_status`].
+    pub async fn gendig
+    (
         &mut self,
         zone: GenDigZone,
         key_id: u16,
     ) -> Result<(), AteccError<H::Error>>
     {
-        self.execute_command_status(
+        self.execute_command_status
+        (
             OP_GENDIG,
             zone.as_param1(),
             key_id,

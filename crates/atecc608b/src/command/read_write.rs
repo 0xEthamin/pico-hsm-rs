@@ -62,7 +62,7 @@
 //! `lib/calib/calib_write.c`, constants `ATCA_ZONE_CONFIG`, `ATCA_ZONE_OTP`,
 //! `ATCA_ZONE_DATA`, `ATCA_ZONE_READWRITE_32`, `ATCA_ZONE_ENCRYPTED`.
 
-use crate::driver::Atecc;
+use crate::driver::AteccChannel;
 use crate::error::AteccError;
 use crate::hal::AteccHal;
 use crate::opcodes::{EXEC_TIME_READ_MS, EXEC_TIME_WRITE_MS, OP_READ, OP_WRITE};
@@ -176,12 +176,10 @@ const fn write_param1(zone: Zone, is_32_bytes: bool, encrypted: bool) -> u8
     p1
 }
 
-impl<H> Atecc<H>
+impl<'a, H> AteccChannel<'a, H>
 where
     H: AteccHal,
 {
-    // ----- Read --------------------------------------------------------------
-
     /// Read a 4-byte word from the given zone at the given address.
     ///
     /// `address` is the raw 16-bit value encoded in `param2`. Callers
@@ -191,7 +189,8 @@ where
     /// See [`Atecc::execute_command`]. In particular, reads of locked or
     /// permission-restricted regions surface as [`AteccError::Chip`] with
     /// the relevant status byte.
-    pub(crate) async fn read_4(
+    pub(crate) async fn read_4
+    (
         &mut self,
         zone: Zone,
         address: u16,
@@ -200,7 +199,8 @@ where
         // Response: count(1) + 4 data + crc(2) = 7 bytes.
         let mut response_buf = [0u8; 1 + WORD_SIZE + 2];
         let payload = self
-            .execute_command(
+            .execute_command
+            (
                 OP_READ,
                 read_param1(zone, false),
                 address,
@@ -222,8 +222,9 @@ where
     /// bits must be zero, the chip rejects 32-byte transfers otherwise.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`].
-    pub(crate) async fn read_32(
+    /// See [`AteccChannel::execute_command`].
+    pub(crate) async fn read_32
+    (
         &mut self,
         zone: Zone,
         address: u16,
@@ -232,7 +233,8 @@ where
         // Response: count(1) + 32 data + crc(2) = 35 bytes.
         let mut response_buf = [0u8; 1 + BLOCK_SIZE + 2];
         let payload = self
-            .execute_command(
+            .execute_command
+            (
                 OP_READ,
                 read_param1(zone, true),
                 address,
@@ -250,12 +252,12 @@ where
 
     /// Read the entire 128-byte config zone into `out`.
     ///
-    /// Internally performs four 32-byte reads, one per block. The chip stays
-    /// awake between the reads.
+    /// Internally performs four 32-byte reads, one per block. The channel
+    /// stays open between the reads.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command`]. The first failing block aborts the
-    /// whole operation.
+    /// See [`AteccChannel::execute_command`]. The first failing block aborts
+    /// the whole operation.
     pub async fn read_config_zone
     (
         &mut self,
@@ -279,7 +281,8 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command`].
-    pub(crate) async fn read_slot_word(
+    pub(crate) async fn read_slot_word
+    (
         &mut self,
         slot: Slot,
         block: u8,
@@ -293,7 +296,8 @@ where
     ///
     /// # Errors
     /// See [`Atecc::execute_command`].
-    pub(crate) async fn read_slot_block(
+    pub(crate) async fn read_slot_block
+    (
         &mut self,
         slot: Slot,
         block: u8,
@@ -302,25 +306,25 @@ where
         self.read_32(Zone::Data, data_address(slot, block, 0)).await
     }
 
-    // ----- Write -------------------------------------------------------------
-
     /// Write a 4-byte word to the given zone at the given address.
     ///
     /// Cleartext only: encrypted writes are not supported in 4-byte mode
     /// (this is a chip limitation, not a driver one).
     ///
     /// # Errors
-    /// See [`Atecc::execute_command_status`]. Writes to locked regions or to
-    /// slots whose `SlotConfig.WriteConfig` forbids cleartext writes surface
-    /// as [`AteccError::Chip`].
-    pub async fn write_4(
+    /// See [`AteccChannel::execute_command_status`]. Writes to locked
+    /// regions or to slots whose `SlotConfig.WriteConfig` forbids cleartext
+    /// writes surface as [`AteccError::Chip`].
+    pub async fn write_4
+    (
         &mut self,
         zone: Zone,
         address: u16,
         data: &[u8; WORD_SIZE],
     ) -> Result<(), AteccError<H::Error>>
     {
-        self.execute_command_status(
+        self.execute_command_status
+        (
             OP_WRITE,
             write_param1(zone, false, false),
             address,
@@ -336,7 +340,7 @@ where
     /// the upper bits per the zone layout.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command_status`].
+    /// See [`AteccChannel::execute_command_status`].
     pub async fn write_32
     (
         &mut self,
@@ -345,7 +349,8 @@ where
         data: &[u8; BLOCK_SIZE],
     ) -> Result<(), AteccError<H::Error>>
     {
-        self.execute_command_status(
+        self.execute_command_status
+        (
             OP_WRITE,
             write_param1(zone, true, false),
             address,
@@ -368,7 +373,7 @@ where
     /// error.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command_status`].
+    /// See [`AteccChannel::execute_command_status`].
     pub async fn write_32_encrypted
     (
         &mut self,
@@ -377,7 +382,8 @@ where
         ciphertext_and_mac: &[u8; ENCRYPTED_WRITE_DATA_SIZE],
     ) -> Result<(), AteccError<H::Error>>
     {
-        self.execute_command_status(
+        self.execute_command_status
+        (
             OP_WRITE,
             write_param1(zone, true, true),
             address,
@@ -390,7 +396,7 @@ where
     /// Write a 4-byte word into a data slot in cleartext.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command_status`].
+    /// See [`AteccChannel::execute_command_status`].
     pub async fn write_slot_word
     (
         &mut self,
@@ -406,7 +412,7 @@ where
     /// Write a 32-byte block into a data slot in cleartext.
     ///
     /// # Errors
-    /// See [`Atecc::execute_command_status`].
+    /// See [`AteccChannel::execute_command_status`].
     pub async fn write_slot_block
     (
         &mut self,
