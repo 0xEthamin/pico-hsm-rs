@@ -8,6 +8,7 @@ license     = { workspace = true }
 
 [dependencies]
 hsm-usb-protocol = { path = "../../crates/hsm-usb-protocol", features = ["std"] }
+atecc608b        = { path = "../../crates/atecc608b" }
 hidapi           = { workspace = true }
 clap             = { workspace = true }
 anyhow           = { workspace = true }

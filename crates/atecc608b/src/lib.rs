@@ -62,5 +62,6 @@ pub use driver::Atecc;
 pub use driver::AteccChannel;
 pub use error::AteccError;
 pub use error::ChipError;
+pub use error::AteccErrorKind;
 pub use hal::AteccHal;
 pub use slot::Slot;

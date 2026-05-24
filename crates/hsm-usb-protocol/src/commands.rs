@@ -122,9 +122,29 @@ pub enum CommandOpcode
 
     // Provisioning (reversible while zones are unlocked).
     /// `0x10` - `WriteConfigZone(blob)`: replace the writable part of the
-    /// config zone. Payload: `[blob: [u8; 32]]` for one block at a time
-    /// (this command is issued 4 times, once per block index 0..=3).
-    /// Payload first byte is the block index, followed by the 32 bytes.
+    /// config zone. Payload: `[block: u8, blob: [u8; 32]]`. The host issues
+    /// this command four times, once per block index 0..=3.
+    ///
+    /// Two blocks of the config zone have a special wire-level shape
+    /// because the chip's `Write` command refuses some words inside them:
+    ///
+    /// - **Block 0** : words 0..=3 (chip-side bytes 0..16) are the
+    ///   read-only factory area. The firmware writes only words 4..=7
+    ///   (bytes 16..32) as four 4-byte transfers. Payload bytes 0..16 are
+    ///   **ignored**; callers may set them to any placeholder value (the
+    ///   canonical `config-generator` emits zeros).
+    /// - **Block 2** : word 5 (chip-side bytes 84..88) covers
+    ///   `UserExtra`, `Selector`, `LockValue`, and `LockConfig`. Those
+    ///   are modified only via the dedicated `UpdateExtra` and `Lock`
+    ///   commands; the `Write` command rejects a 32-byte transfer that
+    ///   includes them. The firmware writes block 2 as seven 4-byte
+    ///   transfers at word offsets 0..=4 and 6..=7. Payload bytes 20..24
+    ///   are **ignored**.
+    ///
+    /// Blocks 1 and 3 are written wholesale as a single 32-byte transfer.
+    ///
+    /// This mirrors the strategy of `CryptoAuthLib`'s
+    /// `calib_write_bytes_zone` (`lib/calib/calib_basic.c`).
     WriteConfigZone    = 0x10,
     /// `0x11` - `ProvisionSlot(slot, value)`: write a 32-byte cleartext
     /// value into one of the data slots. Only accepted by the firmware

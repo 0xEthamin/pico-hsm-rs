@@ -22,6 +22,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use hidapi::{HidApi, HidDevice};
 
+use atecc608b::{AteccErrorKind, ChipError};
 use hsm_usb_protocol::{Frame, HID_REPORT_SIZE, USB_PID, USB_VID};
 use hsm_usb_protocol::responses::ResponseStatus;
 
@@ -132,7 +133,27 @@ pub(crate) fn send_command
                 frame.payload[1],
             );
         }
-
+        if frame.opcode == ResponseStatus::AteccChipError.as_u8() && frame.payload.len() == 1
+        {
+            let raw = frame.payload[0];
+            let chip = ChipError::from_status_byte(raw);
+            bail!(
+                "chip returned chip-level error: {} (raw status byte 0x{:02x})",
+                describe_chip_error(chip),
+                raw,
+            );
+        }
+        if frame.opcode == ResponseStatus::AteccCommunicationError.as_u8()
+            && frame.payload.len() == 1
+        {
+            let sub = frame.payload[0];
+            let kind = AteccErrorKind::from_sub_code(sub);
+            bail!(
+                "chip returned communication error: {} (sub-code 0x{:02x})",
+                describe_atecc_kind(kind),
+                sub,
+            );
+        }
         if frame.payload.is_empty()
         {
             bail!("chip returned status 0x{:02x} ({status_name})", frame.opcode);
@@ -176,5 +197,42 @@ fn describe_status(byte: u8) -> &'static str
         Some(ResponseStatus::Bricked)                 => "Bricked",
         Some(ResponseStatus::EmergencyResetNotPermitted) => "EmergencyResetNotPermitted",
         None => "Unknown",
+    }
+}
+
+/// Symbolic name for a chip-side error decoded from
+/// `ResponseStatus::AteccChipError` payload.
+fn describe_chip_error(err: Option<ChipError>) -> &'static str
+{
+    match err
+    {
+        Some(ChipError::CheckMacOrVerifyFailed) => "CheckMacOrVerifyFailed",
+        Some(ChipError::ParseError)             => "ParseError",
+        Some(ChipError::EccFault)               => "EccFault",
+        Some(ChipError::SelfTestFailed)         => "SelfTestFailed",
+        Some(ChipError::HealthTestFailed)       => "HealthTestFailed",
+        Some(ChipError::ExecutionError)         => "ExecutionError",
+        Some(ChipError::WatchdogAboutToExpire)  => "WatchdogAboutToExpire",
+        Some(ChipError::CommandCrcError)        => "CommandCrcError",
+        Some(ChipError::Unknown(_))             => "Unknown(...)",
+        None                                    => "Success(0x00, unexpected here)",
+    }
+}
+
+/// Symbolic name for a non-chip driver error decoded from
+/// `ResponseStatus::AteccCommunicationError` payload.
+fn describe_atecc_kind(kind: Option<AteccErrorKind>) -> &'static str
+{
+    match kind
+    {
+        Some(AteccErrorKind::Hal)               => "Hal (I2C nack / GPIO failure)",
+        Some(AteccErrorKind::WakeFailed)        => "WakeFailed (wrong wake pattern)",
+        Some(AteccErrorKind::SelfTestFailure)   => "SelfTestFailure (chip self-test failed at wake)",
+        Some(AteccErrorKind::BadCrc)            => "BadCrc (response CRC mismatch)",
+        Some(AteccErrorKind::Timeout)           => "Timeout (chip polling timed out)",
+        Some(AteccErrorKind::MalformedResponse) => "MalformedResponse (inconsistent length byte)",
+        Some(AteccErrorKind::BufferTooSmall)    => "BufferTooSmall (driver buffer too small)",
+        Some(AteccErrorKind::Chip(_))           => "Chip(_) (unexpected here, see AteccChipError)",
+        None                                    => "Unknown sub-code",
     }
 }

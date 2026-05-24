@@ -35,10 +35,16 @@ pub enum ResponseStatus
     InvalidPayload           = 0x02,
     /// `0x03` - Slot index out of range.
     InvalidSlot              = 0x03,
-    /// `0x04` - I2C / wake error talking to the ATECC.
+    /// `0x04` - I2C / wake / framing error talking to the ATECC.
+    /// `payload[0]` is a one-byte sub-code identifying the precise
+    /// failure category (HAL nack, wake-failed, CRC mismatch, timeout,
+    /// malformed response, buffer-too-small, self-test failure). The
+    /// canonical encoding matches `atecc608b::AteccErrorKind::as_sub_code`.
     AteccCommunicationError  = 0x04,
     /// `0x05` - Chip returned an error status. The chip's raw status byte
-    /// is in `payload[0]`.
+    /// is in `payload[0]`. Decode via
+    /// `atecc608b::ChipError::from_status_byte` to get the symbolic
+    /// variant (`ParseError`, `ExecutionError`, etc.).
     AteccChipError           = 0x05,
     /// `0x06` - The user did not press the button within the 30 s window.
     TouchTimeout             = 0x06,

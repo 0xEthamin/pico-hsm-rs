@@ -17,7 +17,7 @@
 
 use core::fmt::Debug;
 
-use atecc608b::{AteccError, Slot};
+use atecc608b::{AteccError, AteccErrorKind, Slot};
 
 use crate::pin::FormatError;
 
@@ -82,6 +82,30 @@ where
         /// Number of PUK attempts the user still has in the current batch.
         puk_tries_remaining: u8,
     },
+}
+
+impl<HalError> CryptoServiceError<HalError>
+where
+    HalError: Debug,
+{
+    /// Return the non-generic [`AteccErrorKind`] if this error wraps a
+    /// driver-level failure.
+    ///
+    /// Returns `None` for variants that originated above the driver layer
+    /// (PIN/PUK failures, format errors, session policy violations).
+    ///
+    /// Intended for layers that must serialize the error over a wire
+    /// format without naming the concrete `HalError` type, in particular
+    /// the firmware's USB-HID dispatcher.
+    #[must_use]
+    pub fn atecc_kind(&self) -> Option<AteccErrorKind>
+    {
+        match self
+        {
+            CryptoServiceError::Atecc(err) => Some(err.kind()),
+            _                                                     => None,
+        }
+    }
 }
 
 impl<HalError> From<AteccError<HalError>> for CryptoServiceError<HalError>

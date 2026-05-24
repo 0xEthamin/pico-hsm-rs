@@ -49,7 +49,7 @@ use core::fmt::Debug;
 use atecc608b::command::counter::CounterId;
 use atecc608b::command::gendig::GenDigZone;
 use atecc608b::command::nonce::NonceTarget;
-use atecc608b::command::read_write::{data_address, Zone};
+use atecc608b::command::read_write::{config_or_otp_address, data_address, Zone};
 use atecc608b::{Atecc, AteccError, AteccHal, ChipError, Slot};
 
 use crate::encrypted_write::
@@ -270,15 +270,35 @@ where
 
     /// Write one 32-byte block of the configuration zone (provisioning).
     ///
-    /// The chip enforces that the read-only factory bytes (0..16, all in
-    /// block 0) are not modifiable: an attempt to overwrite them with
-    /// different values will be silently no-op'd on those bytes. The
-    /// `tools/config-generator` is expected to produce a 128-byte blob
-    /// that matches the factory area on the target chip.
+    /// The ATECC608B's `Write` command refuses to touch certain regions of
+    /// the configuration zone, even before lock. The reference Microchip
+    /// routine `calib_write_bytes_zone` in `CryptoAuthLib`
+    /// (`lib/calib/calib_basic.c`) handles this by switching from 32-byte
+    /// to 4-byte transfers on the affected blocks and by skipping the
+    /// non-writable words entirely. We follow the same strategy.
+    ///
+    /// Concretely:
+    ///
+    /// - **Block 0 (chip-side bytes 0..32).** Words 0..=3 (bytes 0..16) are
+    ///   the read-only factory area (serial, `RevNum`, reserved). Any 32-byte
+    ///   write that includes them is rejected with `ParseError 0x03`. Words
+    ///   4..=7 (bytes 16..32) are written one at a time in 4-byte mode.
+    /// - **Block 1 (bytes 32..64).** All writable. Single 32-byte write.
+    /// - **Block 2 (bytes 64..96).** Word 5 (bytes 84..88) covers
+    ///   `UserExtra`, Selector, `LockValue`, and `LockConfig`. Those are modified
+    ///   only via the dedicated `UpdateExtra` and `Lock` commands; the
+    ///   `Write` command rejects the whole 32-byte transfer if word 5 is
+    ///   part of it. Words 0..=4 and 6..=7 are written one at a time in
+    ///   4-byte mode; word 5 is skipped entirely. **The host-side blob's
+    ///   bytes 84..88 are therefore ignored by the chip** — make sure the
+    ///   factory defaults (`0x00 0x00 0x55 0x55`) match what the blob
+    ///   contains for these positions, or call `UpdateExtra` /  `Lock`
+    ///   separately if a different value is desired.
+    /// - **Block 3 (bytes 96..128).** All writable. Single 32-byte write.
     ///
     /// This operation is **reversible** while the config zone is unlocked
-    /// (`LockConfig != 0`). Once `LockConfigZone` has been issued, this
-    /// call will return a chip error.
+    /// (`LockConfig != 0`). Once `LockConfigZone` has been issued, every
+    /// chip-side Write here will return a chip error.
     ///
     /// `block` must be in `0..=3`.
     ///
@@ -296,12 +316,33 @@ where
         {
             return Err(CryptoServiceError::InvalidFormat(FormatError::OutOfRange));
         }
-        // Config zone address: high byte = block, low byte = 0 (start
-        // of block). Matches `config_or_otp_address(block, 0)` in the
-        // driver, but we encode it inline here.
-        let address = u16::from(block) << 3;
         let mut channel = self.atecc.open_channel().await?;
-        channel.write_32(Zone::Config, address, data).await?;
+        if can_write_block_in_one_transfer(block)
+        {
+            let address = config_or_otp_address(block, 0);
+            channel.write_32(Zone::Config, address, data).await?;
+        }
+        else
+        {
+            // Word-by-word path for blocks that contain non-writable words.
+            // Driven by `writable_words_in_block` which encodes, per block,
+            // the exact set of word offsets the chip's Write command will
+            // accept. Words outside that set are silently skipped here.
+            for &word_offset in writable_words_in_block(block)
+            {
+                let address = config_or_otp_address(block, word_offset);
+                let payload_off = usize::from(word_offset) * 4;
+                // Copy the 4 source bytes into a fresh array. The slice
+                // bounds are statically valid (word_offset is in 0..=7,
+                // payload_off in 0..=28, data is fixed `&[u8; 32]`), so
+                // the index range is always in-bounds. A copy is used
+                // instead of `try_into` to keep this path free of any
+                // unreachable `expect` / `unwrap`.
+                let mut chunk = [0u8; 4];
+                chunk.copy_from_slice(&data[payload_off..payload_off + 4]);
+                channel.write_4(Zone::Config, address, &chunk).await?;
+            }
+        }
         channel.close().await?;
         Ok(())
     }
@@ -1228,6 +1269,54 @@ where
     }
 }
 
+/// Whether the chip accepts a single 32-byte `Write` for the whole block.
+///
+/// Only blocks 1 and 3 of the config zone are fully writable in one shot.
+/// Blocks 0 and 2 contain words that the chip refuses to overwrite via
+/// `Write` (factory area, `UserExtra`, `Selector`, `LockValue`,
+/// `LockConfig`) and must be written word-by-word, skipping the
+/// non-writable words.
+///
+/// Mirrors the `!(zone == ATCA_ZONE_CONFIG && cur_block == 2u)` and
+/// implicit "block 0 starts at offset 16" logic from `CryptoAuthLib`'s
+/// `calib_write_bytes_zone`. See `lib/calib/calib_basic.c` in the
+/// reference Microchip library.
+const fn can_write_block_in_one_transfer(block: u8) -> bool
+{
+    matches!(block, 1 | 3)
+}
+
+/// Set of word offsets (within a 32-byte config-zone block) that the chip's
+/// `Write` command accepts in 4-byte mode.
+///
+/// Used only when [`can_write_block_in_one_transfer`] returns `false`. For
+/// blocks 1 and 3 this helper returns an empty slice; those blocks should
+/// be written with a single 32-byte transfer instead.
+///
+/// - Block 0 : words 4..=7 are writable (chip-side bytes 16..32). Words
+///   0..=3 (bytes 0..16) are the read-only factory area: serial number,
+///   `RevNum`, `Reserved`. Any write attempt is rejected by the chip with
+///   `ParseError 0x03`.
+/// - Block 2 : words 0..=4 and 6..=7 are writable. Word 5 (bytes 84..88)
+///   covers `UserExtra`, `Selector`, `LockValue`, and `LockConfig`. These
+///   are modified only via the dedicated `UpdateExtra` and `Lock`
+///   commands; the `Write` command rejects them. `CryptoAuthLib`'s
+///   `calib_write_bytes_zone` skips word 5 of block 2 explicitly with
+///   `!(zone == ATCA_ZONE_CONFIG && cur_block == 2u && cur_word == 5u)`.
+///
+/// The slice is returned in ascending order of word offset; callers iterate
+/// in that order to match the wire sequence used by the reference library
+/// and pinned down by the corresponding integration tests.
+const fn writable_words_in_block(block: u8) -> &'static [u8]
+{
+    match block
+    {
+        0 => &[4, 5, 6, 7],
+        2 => &[0, 1, 2, 3, 4, 6, 7],
+        _ => &[],
+    }
+}
+
 /// Compute how many `CheckMac` attempts remain before the next batch
 /// threshold is hit.
 ///
@@ -1315,5 +1404,56 @@ mod tests
         assert_eq!(retries_remaining(15, 5), 0);
         assert_eq!(retries_remaining(10, 10), 0);
         assert_eq!(retries_remaining(20, 10), 0);
+    }
+
+    #[test]
+    fn one_transfer_blocks_are_1_and_3_only()
+    {
+        assert!(!can_write_block_in_one_transfer(0));
+        assert!( can_write_block_in_one_transfer(1));
+        assert!(!can_write_block_in_one_transfer(2));
+        assert!( can_write_block_in_one_transfer(3));
+    }
+
+    #[test]
+    fn writable_words_block_0_skips_factory_area()
+    {
+        // Factory area = bytes 0..16 = words 0..=3. Writable = words 4..=7.
+        assert_eq!(writable_words_in_block(0), &[4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn writable_words_block_2_skips_word_5()
+    {
+        // Word 5 = bytes 84..88 = UserExtra/Selector/LockValue/LockConfig.
+        // Not writable via the `Write` command. The remaining words of
+        // block 2 are writable: 0..=4 and 6..=7.
+        assert_eq!(writable_words_in_block(2), &[0, 1, 2, 3, 4, 6, 7]);
+    }
+
+    #[test]
+    fn writable_words_blocks_1_and_3_are_empty_word_lists()
+    {
+        // Blocks 1 and 3 are written via 32-byte transfer; the
+        // word-by-word helper returns an empty list for them.
+        assert!(writable_words_in_block(1).is_empty());
+        assert!(writable_words_in_block(3).is_empty());
+    }
+
+    #[test]
+    fn writable_words_one_transfer_and_word_list_are_disjoint()
+    {
+        // Encoded contract: a block is either written in one 32-byte
+        // transfer, or via the word list. Never both, never neither.
+        for block in 0u8..=3u8
+        {
+            let one_shot = can_write_block_in_one_transfer(block);
+            let words    = writable_words_in_block(block);
+            assert_eq!(
+                one_shot, words.is_empty(),
+                "block {block}: one_transfer={one_shot}, word_list_empty={}",
+                words.is_empty(),
+            );
+        }
     }
 }

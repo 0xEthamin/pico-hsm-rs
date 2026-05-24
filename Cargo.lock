@@ -1095,6 +1095,7 @@ name = "hsm-host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "atecc608b",
  "clap",
  "hex",
  "hidapi",

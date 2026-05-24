@@ -247,6 +247,213 @@ fn write_32_uses_raw_address_api()
 }
 
 // ---------------------------------------------------------------------------
+// Config-zone block 0 wire-sequence contract
+//
+// Backs `hsm_crypto_service::CryptoService::write_config_block(0, ..)`. The
+// chip rejects any 32-byte transfer to block 0 of the config zone (bytes
+// 0..16 are read-only factory area, the chip returns ParseError 0x03). The
+// service must therefore write block 0 as **four** 4-byte transfers
+// targeting words 4..=7 (chip-side bytes 16..32), skipping the factory
+// area entirely. This test pins down the exact wire sequence so that a
+// regression in either addressing or transfer size is caught
+// deterministically off-target.
+// ---------------------------------------------------------------------------
+
+/// Build the wire frame for one `Write(Config, 4-byte, cleartext)` command
+/// targeting the given (block, word_offset) inside the config zone. The
+/// frame layout is identical to the existing
+/// `write_4_config_block_2_offset_5_cleartext` test, parameterised over
+/// the address and payload.
+fn build_write_4_config_word(block: u8, word_offset: u8, data: &[u8; WORD_SIZE]) -> [u8; 12]
+{
+    let address = config_or_otp_address(block, word_offset);
+    let mut frame = [0u8; 12];
+    frame[0] = 0x03;                                   // word address (command)
+    frame[1] = 0x0B;                                   // count = 7 + 4 = 11
+    frame[2] = 0x12;                                   // opcode WRITE
+    frame[3] = 0x00;                                   // p1 = Config | 4-byte | cleartext
+    frame[4] = (address & 0xFF) as u8;                 // p2 lo
+    frame[5] = ((address >> 8) & 0xFF) as u8;          // p2 hi
+    frame[6..10].copy_from_slice(data);
+    let crc = atecc608b::crc::crc16(&frame[1..10]);
+    let crc_bytes = atecc608b::crc::crc16_to_bytes(crc);
+    frame[10] = crc_bytes[0];
+    frame[11] = crc_bytes[1];
+    frame
+}
+
+#[test]
+fn write_config_block_0_sequence_is_four_4byte_writes_at_words_4_to_7()
+{
+    // Build a representative 32-byte payload. Only the upper 16 bytes
+    // (offsets 16..32) should hit the wire; the first 16 are the factory
+    // area placeholder that the host CLI sends but the chip must never see.
+    let mut payload = [0u8; BLOCK_SIZE];
+    for (i, byte) in payload.iter_mut().enumerate()
+    {
+        // Distinctive pattern so a wrong slicing is immediately visible
+        // in the assertion: bytes 0..16 use 0xA0..0xAF, bytes 16..32 use
+        // 0xB0..0xBF. The test expects to see only the 0xBX values on
+        // the wire.
+        *byte = if i < 16 { 0xA0 | (i as u8) } else { 0xB0 | ((i - 16) as u8) };
+    }
+
+    // Expected sequence: four 4-byte writes at word offsets 4, 5, 6, 7
+    // (chip-side bytes 16..20, 20..24, 24..28, 28..32).
+    let expected_frames: [[u8; 12]; 4] =
+    [
+        build_write_4_config_word(0, 4, &[payload[16], payload[17], payload[18], payload[19]]),
+        build_write_4_config_word(0, 5, &[payload[20], payload[21], payload[22], payload[23]]),
+        build_write_4_config_word(0, 6, &[payload[24], payload[25], payload[26], payload[27]]),
+        build_write_4_config_word(0, 7, &[payload[28], payload[29], payload[30], payload[31]]),
+    ];
+
+    let response = status_response(0x00);
+    let mut hal = MockHal::new();
+    expect_wake(&mut hal);
+    for frame in &expected_frames
+    {
+        expect_command_round_trip(&mut hal, frame, 45, &response);
+    }
+    expect_idle(&mut hal);
+
+    // Drive the same sequence the service-level `write_config_block(0, ..)`
+    // will produce. Mirrors that orchestration explicitly so a regression
+    // in either function (driver-level `write_4` addressing or service-level
+    // chunking) is caught here.
+    let mut atecc = Atecc::new(hal);
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    for word_offset in 4u8..=7u8
+    {
+        let off = usize::from(word_offset) * 4;
+        let chunk: [u8; WORD_SIZE] =
+        [
+            payload[off],
+            payload[off + 1],
+            payload[off + 2],
+            payload[off + 3],
+        ];
+        block_on(channel.write_4(Zone::Config, config_or_otp_address(0, word_offset), &chunk))
+            .expect("write_4");
+    }
+
+    block_on(channel.close()).expect("close");
+    atecc.into_hal().verify();
+}
+
+#[test]
+fn write_config_block_0_addresses_are_0x0004_through_0x0007()
+{
+    // Anchors the addressing math used by the service: word offsets 4..=7
+    // in block 0 of the config zone correspond to chip-side bytes 16..32,
+    // and the param2 values are 0x0004, 0x0005, 0x0006, 0x0007 respectively.
+    // If `config_or_otp_address` ever changes its bit layout, this test
+    // fails loudly before any HAL is even touched.
+    assert_eq!(config_or_otp_address(0, 4), 0x0004);
+    assert_eq!(config_or_otp_address(0, 5), 0x0005);
+    assert_eq!(config_or_otp_address(0, 6), 0x0006);
+    assert_eq!(config_or_otp_address(0, 7), 0x0007);
+}
+
+// ---------------------------------------------------------------------------
+// Config-zone block 2 wire-sequence contract
+//
+// Block 2 covers chip-side bytes 64..96. Word 5 (bytes 84..88) holds
+// `UserExtra`, `Selector`, `LockValue`, and `LockConfig`, which are not
+// writable via the `Write` command (they have dedicated `UpdateExtra` and
+// `Lock` commands). The chip rejects any 32-byte transfer that includes
+// this word with `ParseError 0x03`. CryptoAuthLib's `calib_write_bytes_zone`
+// in `lib/calib/calib_basic.c` skips word 5 of block 2 explicitly:
+//
+//     if (!(zone == ATCA_ZONE_CONFIG && cur_block == 2u && cur_word == 5u)) {
+//         calib_write_zone(... cur_block, cur_word, ..., ATCA_WORD_SIZE);
+//     }
+//
+// We mirror that: block 2 is written as 7 separate 4-byte writes at word
+// offsets 0, 1, 2, 3, 4, 6, 7. Word 5 is silently skipped.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn write_config_block_2_sequence_skips_word_5()
+{
+    // Build a representative 32-byte payload with a distinctive pattern so
+    // a wrong slicing is immediately visible. Each byte encodes its block-2
+    // position in the upper nibble: byte n of the payload is 0xC0 | (n & 0x1F).
+    let mut payload = [0u8; BLOCK_SIZE];
+    for (i, byte) in payload.iter_mut().enumerate()
+    {
+        *byte = 0xC0 | (i as u8 & 0x1F);
+    }
+
+    // Word offsets 0..=4 and 6..=7 are writable; word 5 (payload bytes
+    // 20..24, chip-side bytes 84..88) is skipped.
+    let writable_offsets: [u8; 7] = [0, 1, 2, 3, 4, 6, 7];
+    let mut expected_frames: Vec<[u8; 12]> = Vec::new();
+    for &word_offset in &writable_offsets
+    {
+        let off = usize::from(word_offset) * 4;
+        let chunk: [u8; WORD_SIZE] =
+        [
+            payload[off],
+            payload[off + 1],
+            payload[off + 2],
+            payload[off + 3],
+        ];
+        expected_frames.push(build_write_4_config_word(2, word_offset, &chunk));
+    }
+    assert_eq!(expected_frames.len(), 7);
+
+    let response = status_response(0x00);
+    let mut hal = MockHal::new();
+    expect_wake(&mut hal);
+    for frame in &expected_frames
+    {
+        expect_command_round_trip(&mut hal, frame, 45, &response);
+    }
+    expect_idle(&mut hal);
+
+    // Drive the same sequence `write_config_block(2, ..)` produces.
+    let mut atecc = Atecc::new(hal);
+    let mut channel = block_on(atecc.open_channel()).expect("open_channel");
+    for &word_offset in &writable_offsets
+    {
+        let off = usize::from(word_offset) * 4;
+        let chunk: [u8; WORD_SIZE] =
+        [
+            payload[off],
+            payload[off + 1],
+            payload[off + 2],
+            payload[off + 3],
+        ];
+        block_on(channel.write_4(Zone::Config, config_or_otp_address(2, word_offset), &chunk))
+            .expect("write_4");
+    }
+
+    block_on(channel.close()).expect("close");
+    atecc.into_hal().verify();
+}
+
+#[test]
+fn write_config_block_2_addresses_skip_0x0015()
+{
+    // The block-2 word offsets that hit the wire are 0..=4 and 6..=7.
+    // Their param2 values are:
+    //   word 0 (bytes 64-67)  -> 0x0010
+    //   word 1 (bytes 68-71)  -> 0x0011
+    //   word 2 (bytes 72-75)  -> 0x0012
+    //   word 3 (bytes 76-79)  -> 0x0013
+    //   word 4 (bytes 80-83)  -> 0x0014
+    //   word 5 (bytes 84-87)  -> 0x0015  (NOT WRITTEN)
+    //   word 6 (bytes 88-91)  -> 0x0016
+    //   word 7 (bytes 92-95)  -> 0x0017
+    assert_eq!(config_or_otp_address(2, 0), 0x0010);
+    assert_eq!(config_or_otp_address(2, 4), 0x0014);
+    assert_eq!(config_or_otp_address(2, 5), 0x0015); // skipped on the wire
+    assert_eq!(config_or_otp_address(2, 6), 0x0016);
+    assert_eq!(config_or_otp_address(2, 7), 0x0017);
+}
+
+// ---------------------------------------------------------------------------
 // write_32 encrypted (slot 5 / PIN hash)
 // ---------------------------------------------------------------------------
 

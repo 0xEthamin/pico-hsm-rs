@@ -43,6 +43,7 @@ use defmt::{info, warn};
 use embassy_futures::select::{select, Either};
 use embassy_time::{Duration, Timer};
 
+use atecc608b::AteccErrorKind;
 use atecc608b::AteccHal;
 use atecc608b::Slot;
 use hsm_crypto_service::{Clock, CryptoService, CryptoServiceError};
@@ -864,6 +865,17 @@ where
 }
 
 /// Map a [`CryptoServiceError`] into a status + payload and write it.
+///
+/// Driver-level failures are split into two cases:
+///
+/// - [`AteccErrorKind::Chip`]: the chip itself returned a non-zero status
+///   byte. Surface that as [`ResponseStatus::AteccChipError`] (0x05) with
+///   the raw chip status byte in `payload[0]`. Lets the host translate to
+///   `ParseError`, `ExecutionError`, etc., for triage.
+/// - Anything else (HAL nack, wake failure, CRC mismatch, timeout, ...):
+///   surface as [`ResponseStatus::AteccCommunicationError`] (0x04) with a
+///   one-byte sub-code in `payload[0]` derived from
+///   [`AteccErrorKind::as_sub_code`].
 fn write_error<HalError>
 (
     tx_buf: &mut [u8],
@@ -875,7 +887,27 @@ where
     use CryptoServiceError as E;
     match err
     {
-        E::Atecc(_) => write_status(tx_buf, ResponseStatus::AteccCommunicationError, &[]),
+        E::Atecc(atecc_err) => match atecc_err.kind()
+        {
+            AteccErrorKind::Chip(chip_err) =>
+            {
+                write_status
+                (
+                    tx_buf,
+                    ResponseStatus::AteccChipError,
+                    &[chip_err.as_status_byte()],
+                )
+            }
+            other =>
+            {
+                write_status
+                (
+                    tx_buf,
+                    ResponseStatus::AteccCommunicationError,
+                    &[other.as_sub_code()],
+                )
+            }
+        },
         E::InvalidFormat(_) => write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
         E::PinIncorrect { tries_remaining } =>
         {
