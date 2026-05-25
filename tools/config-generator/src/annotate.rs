@@ -292,7 +292,7 @@ mod tests
         let blob = build();
         let crc = crc16(&blob[16..128]);
         let text = format(&blob, crc);
-        assert!(text.contains("0xCB23"));
+        assert!(text.contains("0xC92D"));
         assert!(text.contains("Slot  0"));
         assert!(text.contains("Slot 15"));
     }

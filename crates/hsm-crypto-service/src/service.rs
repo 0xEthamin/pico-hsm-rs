@@ -926,9 +926,14 @@ where
     ///
     /// Requires an active PIN session.
     ///
-    /// Internally this is a two-step chip workflow: `Nonce(passthrough,
-    /// TempKey)` then `Sign(external, slot)`. Both steps run inside a
-    /// single chip channel so `TempKey` stays alive between them.
+    /// Internally this is a two-step chip workflow on the ATECC608:
+    /// `Nonce(passthrough, target=MsgDigBuf)` then
+    /// `Sign(external, source=MsgDigBuf, slot)`. Both steps run inside a
+    /// single chip channel so the `MsgDigBuf` register survives between
+    /// them. The `MsgDigBuf` source (rather than the older TempKey-based
+    /// path used by the 508A) is required on the 608 to make the chip
+    /// sign the supplied digest verbatim, without blending in any other
+    /// chip state. Returned `R || S` is 64 bytes big-endian.
     ///
     /// # Errors
     /// - [`CryptoServiceError::PinRequired`] if no session is active.
@@ -947,13 +952,22 @@ where
             return Err(CryptoServiceError::PinRequired);
         }
 
-        // Load the digest into TempKey via passthrough Nonce, then Sign.
-        // Both must run in the same channel: TempKey is volatile and
-        // closing the channel idles the chip between them would lose it.
+        // Load the digest into the Message Digest Buffer via passthrough
+        // Nonce, then Sign with mode = external + source=MsgDigBuf. Both
+        // commands must run inside the same channel: MsgDigBuf is volatile
+        // and idling the chip clears it.
+        //
+        // On the ATECC608 specifically, Sign(external) requires the
+        // MsgDigBuf source bit. Using TempKey instead (as the older 508A
+        // protocol did) makes the chip blend extra context bytes into the
+        // signed message, producing a signature that does not verify
+        // off-chip against the raw 32-byte digest. See
+        // `lib/calib/calib_sign.c::calib_sign` in CryptoAuthLib for the
+        // device-type branch that selects MsgDigBuf for ATECC608.
         let signature =
         {
             let mut channel = self.atecc.open_channel().await?;
-            channel.nonce_passthrough(NonceTarget::TempKey, digest).await?;
+            channel.nonce_passthrough(NonceTarget::MsgDigBuf, digest).await?;
             let signature = channel.sign_external(slot).await?;
             channel.close().await?;
             signature
@@ -997,6 +1011,19 @@ where
     pub fn close_session(&mut self)
     {
         self.session.close();
+    }
+
+    /// Return whether a PIN session is currently active.
+    ///
+    /// Used by command handlers that need to refuse pre-touch on
+    /// session-gated operations (notably `Sign`): without this early
+    /// check the firmware would arm the touch wait then time out 30
+    /// seconds later instead of failing immediately with
+    /// [`CryptoServiceError::PinRequired`].
+    #[must_use]
+    pub fn is_session_active(&self) -> bool
+    {
+        self.session.is_active(self.clock.now_ms())
     }
 
     /// Read one 32-byte block from a data slot.
@@ -1045,13 +1072,22 @@ where
         Ok(data)
     }
 
-    // -------------------------------------------------------------------
-    // Private helpers (own their channel(s))
-    // -------------------------------------------------------------------
-
-    /// Read one counter inside its own channel. Helper used by all the
-    /// PIN / PUK retry-accounting code paths.
-    async fn read_counter
+    /// Read the raw value of one of the chip's monotonic counters.
+    ///
+    /// Returns the binary count as decoded by the chip (the chip's
+    /// `Counter(mode=Read)` command performs the popcount-style decoding
+    /// of its 8-byte storage into a `u32`). The returned value starts at
+    /// 0 on a factory-fresh chip and increments by 1 on every key-usage
+    /// event for keys whose `SlotConfig.LimitedUse == 1`.
+    ///
+    /// Used internally by [`Self::verify_pin`] and the PIN/PUK retry
+    /// arithmetic; exposed publicly so the host CLI can read the raw
+    /// value for bring-up diagnostics without going through
+    /// `retries_remaining`.
+    ///
+    /// # Errors
+    /// - [`CryptoServiceError::Atecc`] on chip-level failures.
+    pub async fn read_counter
     (
         &mut self,
         counter: CounterId,
@@ -1062,6 +1098,10 @@ where
         channel.close().await?;
         Ok(count)
     }
+
+    // -------------------------------------------------------------------
+    // Private helpers (own their channel(s))
+    // -------------------------------------------------------------------
 
     /// Read the chip's 9-byte serial number, caching it on first call.
     async fn cached_serial(&mut self) -> ServiceResult<[u8; CHIP_SERIAL_LEN], H::Error>

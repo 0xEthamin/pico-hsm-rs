@@ -63,7 +63,7 @@ truth for opcode values, payload formats, and parsing logic.
 | `0xF2` | LockSlot         | `magic: [u8; 4], slot: u8`                                    | **Irreversible.** Permanently freezes one slot. Requires `KeyConfig.Lockable=1` on that slot. |
 
 For the project's mini-HSM configuration, the expected CRC for
-`LockConfigZone` is **`0xCB23`** (see `docs/config-zone-layout.md`).
+`LockConfigZone` is **`0xC92D`** (see `docs/config-zone-layout.md`).
 
 The "magic" word on Lock commands is a fixed 4-byte sentinel checked by
 the firmware before issuing the chip's `Lock` command. It is a final
@@ -158,7 +158,7 @@ Host -> token:
 ```
 F0 06 00 DE AD BE EF 23 CB <padding>
 ```
-(`LockConfigZone` with magic `DE AD BE EF` and `expected_crc = 0xCB23`
+(`LockConfigZone` with magic `DE AD BE EF` and `expected_crc = 0xC92D`
 encoded little-endian as `23 CB`.)
 
 The firmware:

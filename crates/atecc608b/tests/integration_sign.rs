@@ -66,9 +66,19 @@ fn expect_command_round_trip(
 #[test]
 fn sign_external_slot_0_returns_64_byte_signature()
 {
-    // Reference frame body: 07 41 80 00 00 28 05
-    // p1 = 0x80 (SIGN_MODE_EXTERNAL), p2 = 0x0000 (slot 0)
-    const COMMAND: [u8; 8] = [0x03, 0x07, 0x41, 0x80, 0x00, 0x00, 0x28, 0x05];
+    // Reference frame body: 07 41 A0 00 00 7B 85
+    //
+    // - p1 = 0xA0 = SIGN_MODE_EXTERNAL (0x80) | SIGN_MODE_SOURCE_MSGDIGBUF (0x20)
+    //   The 608's `Sign(external)` requires both bits: external mode (digest
+    //   provided by host, not generated internally) AND source=MsgDigBuf
+    //   (read the 32-byte digest from the Message Digest Buffer rather than
+    //   from TempKey). Sending 0x80 alone leaves source=TempKey, which on
+    //   the 608 makes the chip mix extra context bytes into what it actually
+    //   signs — the resulting signature does NOT verify off-chip against the
+    //   raw digest.
+    // - p2 = 0x0000 (slot 0).
+    // - CRC = 0x857B for body [0x07, 0x41, 0xA0, 0x00, 0x00].
+    const COMMAND: [u8; 8] = [0x03, 0x07, 0x41, 0xA0, 0x00, 0x00, 0x7B, 0x85];
 
     // Synthetic signature R || S = 0x40..0x7F.
     let mut sig = [0u8; SIGNATURE_SIZE];

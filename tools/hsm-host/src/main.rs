@@ -227,6 +227,21 @@ enum Command
     /// Read current PIN / PUK retry counters and session state.
     PinStatus,
 
+    /// Read the raw value of one of the chip's monotonic counters.
+    ///
+    /// Diagnostic command. Returns the binary count the chip's `Counter`
+    /// command sees, without the batch-arithmetic conversion that
+    /// `pin-status` applies. Use during bring-up to verify what the
+    /// chip actually stores.
+    #[command(name = "read-counter")]
+    ReadCounter
+    {
+        /// 0 for Counter0 (PIN slot, slot 5), 1 for Counter1 (PUK
+        /// slot, slot 6).
+        #[arg(long)]
+        id: u8,
+    },
+
     /// Lock the config zone. **Irreversible.** Requires the CRC-16 of
     /// the expected config (as printed by `config-generator`) to be
     /// passed explicitly as a safety check, plus an interactive
@@ -291,6 +306,7 @@ fn main() -> Result<()>
             cmd_emergency_reset_dangerous(&io_key)
         }
         Command::PinStatus => cmd_pin_status(),
+        Command::ReadCounter { id } => cmd_read_counter(id),
         Command::LockConfigDangerous { expected_crc } =>
         {
             cmd_lock_config_dangerous(&expected_crc)
@@ -807,6 +823,34 @@ fn cmd_pin_status() -> Result<()>
     println!("PIN tries remaining: {}", payload[0]);
     println!("PUK tries remaining: {}", payload[1]);
     println!("Session active     : {}", payload[2] != 0);
+    Ok(())
+}
+
+fn cmd_read_counter(id: u8) -> Result<()>
+{
+    if id > 1
+    {
+        bail!("invalid counter id `{id}`: must be 0 (PIN) or 1 (PUK)");
+    }
+    let device = device::open()?;
+    let payload = device::send_command
+    (
+        &device,
+        CommandOpcode::ReadCounter.as_u8(),
+        &[id],
+    )?;
+    if payload.len() != 4
+    {
+        bail!("unexpected ReadCounter payload: {} bytes", payload.len());
+    }
+    // Length was checked above; copy into a fixed array to keep the
+    // call site free of any unreachable `expect` / `unwrap`.
+    let mut bytes = [0u8; 4];
+    bytes.copy_from_slice(&payload[..4]);
+    let value = u32::from_le_bytes(bytes);
+    let name = if id == 0 { "Counter0 (PIN)" } else { "Counter1 (PUK)" };
+    println!("{name} : {value} (0x{value:08X})");
+    println!("Raw bytes (LE)  : {:02X} {:02X} {:02X} {:02X}", bytes[0], bytes[1], bytes[2], bytes[3]);
     Ok(())
 }
 

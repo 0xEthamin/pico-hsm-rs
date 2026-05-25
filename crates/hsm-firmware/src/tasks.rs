@@ -197,6 +197,10 @@ where
         {
             handle_provision_io_key(service, tx_buf).await
         }
+        CommandOpcode::ReadCounter =>
+        {
+            handle_read_counter(service, frame.payload, tx_buf).await
+        }
         CommandOpcode::LockConfigZone =>
         {
             handle_lock_config_zone(service, frame.payload, tx_buf).await
@@ -286,6 +290,17 @@ where
         Some(s) => s,
         None => return write_status(tx_buf, ResponseStatus::InvalidSlot, &[]),
     };
+
+    // Fail fast if there's no active PIN session, before arming the
+    // touch wait.
+    if !service.is_session_active()
+    {
+        return write_status(tx_buf, ResponseStatus::PinRequired, &[]);
+    }
+
+    // Drain any stale TOUCH_CONFIRMED pulse from a previous run before
+    // arming the wait.
+    TOUCH_CONFIRMED.reset();
 
     // Drain any stale TOUCH_CONFIRMED pulse from a previous run before
     // arming the wait.
@@ -859,6 +874,49 @@ where
                 u8::from(status.session_active),
             ];
             write_status(tx_buf, ResponseStatus::Ok, &payload)
+        }
+        Err(err) => write_error(tx_buf, &err),
+    }
+}
+
+/// Read one of the chip's monotonic counters and return its raw value.
+///
+/// Payload format: `[counter_id: u8]` (0 = Counter0, 1 = Counter1). Any
+/// other value yields [`ResponseStatus::InvalidPayload`].
+///
+/// Response payload: 4 bytes little-endian, the chip's `u32` count
+/// unaltered. The host CLI decodes this into a decimal + hex value for
+/// the operator. Unlike [`handle_get_pin_status`] this does **not** map
+/// the count to "tries remaining" — the goal is diagnostic
+/// transparency on what the chip actually stores.
+async fn handle_read_counter<H, C>
+(
+    service: &mut CryptoService<H, C>,
+    payload: &[u8],
+    tx_buf: &mut [u8],
+) -> usize
+where
+    H: AteccHal,
+    C: Clock,
+    H::Error: core::fmt::Debug,
+{
+    let counter_byte = match parse_slot_only(payload)
+    {
+        Ok(b) => b,
+        Err(_) => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
+    };
+    let counter = match counter_byte
+    {
+        0 => atecc608b::command::counter::CounterId::Counter0,
+        1 => atecc608b::command::counter::CounterId::Counter1,
+        _ => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
+    };
+    match service.read_counter(counter).await
+    {
+        Ok(value) =>
+        {
+            let bytes = value.to_le_bytes();
+            write_status(tx_buf, ResponseStatus::Ok, &bytes)
         }
         Err(err) => write_error(tx_buf, &err),
     }

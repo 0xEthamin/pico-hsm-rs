@@ -50,7 +50,7 @@ This phase also reads no slot data, only the configuration zone.
    ```
    Inspect `config_zone.txt` and confirm the slot table matches
    `docs/config-zone-layout.md`. Confirm the CRC-16 reported by the
-   generator is `0xCB23`.
+   generator is `0xC92D`.
 2. Send the writable portion to the chip:
    ```
    hsm-host write-config --path config_zone.bin
@@ -83,14 +83,14 @@ This step is irreversible.
    ```
    cargo run -p config-generator -- --crc-only
    ```
-   Expected output: `0xCB23`.
+   Expected output: `0xC92D`.
 4. With deliberate intent, invoke:
    ```
-   hsm-host lock-config-DANGEROUS --expected-crc 0xCB23
+   hsm-host lock-config-DANGEROUS --expected-crc 0xC92D
    ```
    The CLI prompts twice for confirmation. Read each prompt fully before
    responding. The firmware verifies that the configuration zone on the
-   chip CRCs to `0xCB23` before issuing the chip's `Lock(config)`
+   chip CRCs to `0xC92D` before issuing the chip's `Lock(config)`
    command. If the CRC does not match, the firmware refuses.
 
 **Exit criterion:** the chip's `LockConfig` byte (offset 87) reads

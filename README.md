@@ -70,7 +70,7 @@ the dongle can be used, an operator must:
 1. Generate the configuration blob via `cargo run -p config-generator`.
 2. Write it to the chip via `hsm-host write-config`.
 3. Lock the configuration zone via `hsm-host lock-config-DANGEROUS
-   --expected-crc 0xCB23`. **This is irreversible.**
+   --expected-crc 0xC92D`. **This is irreversible.**
 4. Provision the I/O master key in slot 8, the PIN hash in slot 5, the
    PUK hash in slot 6, and generate the primary identity key with
    `GenKey(slot=0)`.

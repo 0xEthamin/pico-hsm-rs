@@ -194,12 +194,24 @@ pub(crate) fn build() -> [u8; CONFIG_ZONE_SIZE]
         cfg[offset + 1] = (sc >> 8)   as u8;
     }
 
-    // Bytes 52-67: Counter0 and Counter1 initial values, eight bytes each,
-    // all 0xFF (factory-default "counter at zero" representation).
-    for byte in cfg.iter_mut().take(68).skip(52)
-    {
-        *byte = 0xFF;
-    }
+    // Bytes 52-67: Counter0 and Counter1 initial values, 8 bytes each.
+    //
+    // The ATECC608B stores each monotonic counter as a redundant 8-byte
+    // structure (two linear "lin" 16-bit halves + two binary "bin"
+    // 16-bit halves) that the chip decodes to a single u32 count when
+    // queried via the `Counter` command. Writing `0xFF` to all eight
+    // bytes does NOT mean "count = 0". It decodes (per CryptoAuthLib's
+    // `calib_write_config_counter`) to `count = 2_097_120`, which is
+    // just 31 increments away from the chip's hardware ceiling of
+    // `2^21 - 1`. Such a chip comes out of `Lock(config)` with almost
+    // its entire lifetime budget already consumed.
+    //
+    // The correct factory initialization is `FF FF FF FF 00 00 00 00`
+    // (decodes to count = 0). The `counter_encoding` module produces
+    // it via the same formula CryptoAuthLib uses.
+    let counter_factory_init = crate::counter_encoding::encode_counter_value(0);
+    cfg[52..60].copy_from_slice(&counter_factory_init);
+    cfg[60..68].copy_from_slice(&counter_factory_init);
 
     // Bytes 68-83: feature configuration fields, all unused, all zero.
     // Already initialized to zero by the `cfg` initializer.
@@ -279,9 +291,9 @@ mod tests
         0x81, 0x23, 0x81, 0x23, 0x81, 0x23, 0x81, 0x23,
         // Bytes 48-63
         0x81, 0x23, 0x81, 0x23, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
         // Bytes 64-79
-        0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         // Bytes 80-95
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x55,
@@ -314,7 +326,7 @@ mod tests
     {
         let blob = build();
         let crc = crc16(&blob[16..128]);
-        assert_eq!(crc, 0xCB23, "expected 0xCB23, got 0x{crc:04X}");
+        assert_eq!(crc, 0xC92D, "expected 0xC92D, got 0x{crc:04X}");
     }
 
     #[test]
@@ -403,9 +415,12 @@ mod tests
     fn counters_are_factory_default()
     {
         let blob = build();
-        for byte in &blob[52..68]
-        {
-            assert_eq!(*byte, 0xFF, "Counter bytes must be 0xFF at provisioning");
-        }
+        // Counter0 (bytes 52..60) and Counter1 (bytes 60..68) both
+        // initialized via CryptoAuthLib's counter encoding for count=0,
+        // which is `FF FF FF FF 00 00 00 00` (NOT plain `0xFF` repeated).
+        // See `counter_encoding::encode_counter_value` for the formula.
+        let expected = crate::counter_encoding::encode_counter_value(0);
+        assert_eq!(&blob[52..60], &expected, "Counter0 must be encoded for count=0");
+        assert_eq!(&blob[60..68], &expected, "Counter1 must be encoded for count=0");
     }
 }

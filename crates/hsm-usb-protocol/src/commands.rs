@@ -175,6 +175,20 @@ pub enum CommandOpcode
     /// opportunity to learn the IO key.** No payload from the host.
     /// Response: `[io_key: [u8; 32]]`.
     ProvisionIoKey      = 0x14,
+    /// `0x15` - `ReadCounter(counter_id)`: read the raw value of an
+    /// ATECC608B monotonic counter without modifying it. Diagnostic
+    /// tool used for bring-up and debugging. Payload: `[counter_id: u8]`
+    /// where `counter_id` is 0 (Counter0, backs PIN slot) or 1
+    /// (Counter1, backs PUK slot). Response: `[value: [u8; 4]]` in
+    /// little-endian (the same `u32` the chip returns from
+    /// `Counter(mode=Read)`).
+    ///
+    /// Unlike [`GetPinStatus`](Self::GetPinStatus) which converts the
+    /// raw count into "tries remaining" via the service's batch logic,
+    /// this command returns the chip's binary count unmodified. Useful
+    /// to verify the batch-arithmetic against the actual hardware
+    /// state during development.
+    ReadCounter         = 0x15,
 
     // Lock - isolated, protected by a magic word and a CRC. Never called
     // from automated flows: see crates/atecc608b/src/command/lock.rs and
@@ -221,6 +235,7 @@ impl CommandOpcode
             0x12 => Some(Self::ProvisionInitialPin),
             0x13 => Some(Self::ProvisionInitialPuk),
             0x14 => Some(Self::ProvisionIoKey),
+            0x15 => Some(Self::ReadCounter),
             0xF0 => Some(Self::LockConfigZone),
             0xF1 => Some(Self::LockDataZone),
             0xF2 => Some(Self::LockSlot),
@@ -608,6 +623,7 @@ mod tests
             CommandOpcode::ProvisionInitialPin,
             CommandOpcode::ProvisionInitialPuk,
             CommandOpcode::ProvisionIoKey,
+            CommandOpcode::ReadCounter,
             CommandOpcode::LockConfigZone,
             CommandOpcode::LockDataZone,
             CommandOpcode::LockSlot,

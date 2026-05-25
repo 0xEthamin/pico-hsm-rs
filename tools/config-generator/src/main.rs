@@ -32,13 +32,14 @@ use clap::Parser;
 
 mod annotate;
 mod blob;
+mod counter_encoding;
 mod crc;
 
 /// Expected CRC-16 of the writable portion (bytes 16 to 127) of the
 /// generated blob. This is a constant safety check. If `blob::build()`
 /// ever returns a different value, something has drifted from the
 /// specification.
-const EXPECTED_CRC: u16 = 0xCB23;
+const EXPECTED_CRC: u16 = 0xC92D;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]

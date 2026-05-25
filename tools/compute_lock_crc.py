@@ -57,8 +57,8 @@ def parse_hex_bytes(text):
     tokens = re.findall(r"\b[0-9a-fA-F]{2}\b", blob)
     return [int(tok, 16) for tok in tokens]
 
-
 def main():
+
     if len(sys.argv) > 2:
         print("usage: compute_lock_crc.py [path]", file=sys.stderr)
         return 2
@@ -104,11 +104,11 @@ def main():
     print(f"Use this value with lock-config-DANGEROUS:")
     print(f"    --expected-crc 0x{crc_full:04X}")
     print()
-    if crc_writable == 0xCB23:
-        print("Note: writable portion CRC matches the spec value 0xCB23, so the")
+    if crc_writable == 0xC92D:
+        print("Note: writable portion CRC matches the spec value 0xC92D, so the")
         print("contents 16-127 are exactly as the generator produced. Safe to lock.")
     else:
-        print("Warning: writable portion CRC does NOT match the spec value 0xCB23.")
+        print("Warning: writable portion CRC does NOT match the spec value 0xC92D.")
         print("Inspect the bytes 16-127 above before locking.")
 
     return 0
