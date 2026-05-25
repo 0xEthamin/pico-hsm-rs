@@ -107,7 +107,7 @@ where
 
         let response_len = handle_one_request(&mut service, &rx_buf, &mut tx_buf).await;
 
-        if let Err(_) = tx.write(&tx_buf[..response_len]).await
+        if tx.write(&tx_buf[..response_len]).await.is_err()
         {
             warn!("usb hid write error");
         }

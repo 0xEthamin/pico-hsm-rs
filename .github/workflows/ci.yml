@@ -1,0 +1,183 @@
+name: 'CI/CD Pipeline Mini-HSM'
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Job 1: Check & Linting (Host + Firmware)
+  lint:
+    name: Check & Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libudev-dev \
+            pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv6m-none-eabi
+          components: clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-lint-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cargo Check (Host - default-members)
+        run: cargo check
+
+      - name: Cargo Check (Firmware)
+        run: cargo check -p hsm-firmware --target thumbv6m-none-eabi
+
+      - name: Generate Clippy report
+        run: |
+          cargo clippy \
+            --all-targets \
+            --all-features \
+            --message-format=json \
+            > clippy-report.json || true
+
+          cargo clippy \
+            -p hsm-firmware \
+            --target thumbv6m-none-eabi \
+            --message-format=json \
+            >> clippy-report.json || true
+
+      - name: Run Clippy (strict)
+        run: |
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo clippy -p hsm-firmware --target thumbv6m-none-eabi -- -D warnings
+
+      - name: Upload Clippy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clippy-report
+          path: clippy-report.json
+
+  # Job 2: Tests & coverage (Host)
+  test:
+    name: Test and Coverage
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libudev-dev \
+            pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run tests (Host - default-members)
+        run: cargo test --workspace
+
+      - name: Run coverage (Host)
+        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: lcov.info
+
+  # Job 3: Security audit
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Run security audit (SARIF)
+        run: cargo audit --format sarif > cargo-audit.sarif || true
+
+      - name: Upload audit report (SARIF)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-report
+          path: cargo-audit.sarif
+
+  # Job 4: SonarQube Analysis
+  sonarqube:
+    name: SonarQube Analysis
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: success()
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      - name: Download Clippy report
+        uses: actions/download-artifact@v4
+        with:
+          name: clippy-report
+
+      - name: Download Audit report
+        uses: actions/download-artifact@v4
+        with:
+          name: audit-report
+
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

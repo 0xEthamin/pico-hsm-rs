@@ -141,21 +141,17 @@ fn derive_timer_event(
 {
     let now = Instant::now();
     if let Some(d) = *session_deadline
-    {
-        if d <= now
+        && d <= now
         {
             *session_deadline = None;
             return Event::SessionEnded;
         }
-    }
     if let Some(d) = *error_deadline
-    {
-        if d <= now
+        && d <= now
         {
             *error_deadline = None;
             return Event::ErrorDisplayElapsed;
         }
-    }
     // Should not happen: the select's timer branch fired but no deadline
     // matched. Most likely a logic bug. Fall back to a no-op event.
     defmt::warn!("timer fired but no deadline matched");
