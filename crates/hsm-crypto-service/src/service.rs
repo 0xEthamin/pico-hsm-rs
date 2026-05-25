@@ -290,7 +290,7 @@ where
     ///   `Write` command rejects the whole 32-byte transfer if word 5 is
     ///   part of it. Words 0..=4 and 6..=7 are written one at a time in
     ///   4-byte mode; word 5 is skipped entirely. **The host-side blob's
-    ///   bytes 84..88 are therefore ignored by the chip** — make sure the
+    ///   bytes 84..88 are therefore ignored by the chip**, make sure the
     ///   factory defaults (`0x00 0x00 0x55 0x55`) match what the blob
     ///   contains for these positions, or call `UpdateExtra` /  `Lock`
     ///   separately if a different value is desired.
@@ -694,11 +694,11 @@ where
         Ok(new_puk)
     }
 
-    /// Tire 8 chiffres ASCII depuis le RNG du chip pour produire un
-    /// nouveau PUK. La distribution est uniforme sur `[b'0'..=b'9']`,
-    /// obtenue par modulo après filtrage léger (chaque byte random ->
-    /// un chiffre). 32 octets de random > 8 octets de PUK, on a de la
-    /// marge si on tombait sur un byte ambigu.
+    /// Pull 8 ASCII digits from the chip's RNG to produce a new PUK.
+    /// The distribution is uniform over `[b'0'..=b'9']`, obtained by
+    /// modulo on each random byte (one random byte yields one digit).
+    /// 32 bytes of random are pulled for an 8-byte PUK, which leaves
+    /// ample headroom if any byte ever turned out to be unusable.
     async fn generate_random_puk
     (
         &mut self,
@@ -730,12 +730,18 @@ where
     // to the driver's lock functions. They are kept together at
     // the bottom of the file for visibility.
     //
-    // The service does NOT compute the CRC itself. The host provides it
-    // (the CLI computes it from a known-good blob, the firmware passes
-    // it through unchanged). The chip is the second line of defence: it
-    // recomputes the CRC of its own current state and refuses the lock
-    // if it does not match. The service is the third line of defence:
-    // it does not expose a "lock with no checks" path at all.
+    // For the configuration zone the service does NOT compute the CRC
+    // itself. The host CLI reads the chip's current configuration zone,
+    // computes the CRC over the full 128 bytes, and passes the result
+    // through. The chip is the second line of defence: it recomputes
+    // the CRC of its own current state and refuses the lock if it does
+    // not match. The service is the third line of defence: it does not
+    // expose a "lock with no checks" path at all.
+    //
+    // For the data zone there is no CRC. Every secret-bearing slot has
+    // `IsSecret=1`, so the host cannot read the contents back to compute
+    // one. The double-confirmation prompt in the host CLI and the
+    // magic-word check in the firmware are the only guards.
 
     /// Permanently lock the configuration zone.
     ///
@@ -767,20 +773,21 @@ where
 
     /// Permanently lock the data + OTP zones.
     ///
-    /// `expected_crc` is the CRC-16/CCITT of the slot contents.
-    ///
     /// **Irreversible.** See [`atecc608b::AteccChannel::lock_data_zone`].
+    /// No CRC is checked at the chip level: secret-bearing slots
+    /// (`IsSecret=1`) cannot be read back to compute one. The double
+    /// confirmation prompt in the host CLI and the magic-word check in
+    /// the firmware are the only guards.
     ///
     /// # Errors
     /// - [`CryptoServiceError::Atecc`] if the chip refuses.
     pub async fn lock_data_zone
     (
         &mut self,
-        expected_crc: u16,
     ) -> ServiceResult<(), H::Error>
     {
         let mut channel = self.atecc.open_channel().await?;
-        let result = channel.lock_data_zone(expected_crc).await;
+        let result = channel.lock_data_zone().await;
         channel.close().await?;
         result?;
         Ok(())

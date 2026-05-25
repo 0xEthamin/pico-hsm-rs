@@ -79,19 +79,20 @@ This step is irreversible.
 1. Switch to a **different** chip from Phase 1-3. This second chip will
    be the one we lock. The first chip can stay pristine as a backup.
 2. Repeat phases 1, 2, and 3 on this second chip.
-3. Compute and confirm the CRC of the writable portion:
-   ```
-   cargo run -p config-generator -- --crc-only
-   ```
-   Expected output: `0xC92D`.
+3. As a final sanity check, run `hsm-host read-config` and bit-compare
+   bytes 16-127 against the writable portion of `config_zone.bin`. They
+   must match exactly.
 4. With deliberate intent, invoke:
    ```
-   hsm-host lock-config-DANGEROUS --expected-crc 0xC92D
+   hsm-host lock-config-DANGEROUS
    ```
-   The CLI prompts twice for confirmation. Read each prompt fully before
-   responding. The firmware verifies that the configuration zone on the
-   chip CRCs to `0xC92D` before issuing the chip's `Lock(config)`
-   command. If the CRC does not match, the firmware refuses.
+   The CLI reads the chip's current configuration zone, computes the
+   CRC-16 over the full 128 bytes (factory area included), and prints
+   the result inside the double-confirmation prompt. Read the prompt
+   fully, verify the displayed CRC against your expectations, then type
+   the confirmation phrase. The firmware passes the CRC to the chip's
+   `Lock(config)` command, which recomputes it one last time and refuses
+   if the data has drifted between the read and the lock.
 
 **Exit criterion:** the chip's `LockConfig` byte (offset 87) reads
 `0x00`. `Info(State)` reports the configuration zone as locked.
@@ -100,28 +101,47 @@ This step is irreversible.
 
 ## Phase 5: provision slot data (same chip, data zone still unlocked)
 
-In order:
+The host CLI orchestrates this phase as one command. Running it
+end-to-end is the recommended path. The individual building blocks are
+also exposed as opcodes for diagnostics.
 
-1. Read the chip serial via `Read(Config, block=0)` and derive the I/O
-   Protection master key as `SHA-256(chip_serial || firmware_pepper)`.
-2. Write the I/O master key into slot 8 in cleartext via `Write(Data,
-   slot=8)`. The slot's `WriteConfig=Always` allows it because the data
-   zone is still unlocked.
-3. Compute the initial PIN hash: `SHA-256("0000" || pin_salt)` with
-   `pin_salt = b"mini-hsm-pin-salt-v1"`.
-4. Write the PIN hash into slot 5 in cleartext via `Write(Data,
-   slot=5)`. The slot's `WriteConfig=Always_then_Encrypt` allows
-   cleartext writes pre-lock.
-5. Generate a random 8-digit PUK and compute
-   `SHA-256(puk || puk_salt)` with `puk_salt = b"mini-hsm-puk-salt-v1"`.
-6. Write the PUK hash into slot 6 in cleartext.
-7. Display the chosen PUK to the operator via the host CLI. The PUK is
-   not retained anywhere else; the operator records it in a password
-   manager. Losing the PUK means losing the ability to reset a forgotten
-   PIN. The chip remains usable for signing as long as the user remembers
-   their PIN.
-8. Issue `GenKey(slot=0)` to materialize the primary identity key
-   pair. Record the resulting public key alongside this chip's serial.
+### Recommended path: `provision-token`
+
+```
+hsm-host provision-token --secrets-file ./secrets-<chip-serial>.json
+```
+
+This issues, in order:
+
+1. `ProvisionInitialPin`. The firmware computes
+   `SHA-256("0000" || pin_salt)` on the chip's hash engine and writes
+   the result into slot 5 (cleartext, allowed because the data zone is
+   still unlocked).
+2. `ProvisionInitialPuk`. The firmware draws 8 ASCII digits from the
+   chip's RNG to make a PUK, computes `SHA-256(puk || puk_salt)` on the
+   chip, writes the hash into slot 6, and returns the cleartext PUK in
+   the response. **This is the only opportunity** to read the PUK.
+3. `ProvisionIoKey`. The firmware draws 32 random bytes from the chip's
+   RNG, writes them into slot 8 with `IsSecret=1`, and returns the
+   cleartext value in the response. **This is the only opportunity** to
+   read the I/O master key.
+4. `GenKey(slot=0)` to materialise the primary identity key pair.
+
+The CLI then writes a JSON secrets file containing the PUK, the I/O
+master key, the chip serial, and the slot-0 public key. **Read this
+file once and back it up to a password manager.** Losing the I/O
+master key locks you out of every encrypted operation (`SetPin`,
+`SetPuk`, `UnblockPin`, `EmergencyReset`). Losing the PUK locks you
+out of `UnblockPin` if the PIN is forgotten.
+
+### Notes on the secrets
+
+The I/O master key is **pure random output from the chip's RNG**, not
+derived from the chip serial or any host-side input. The firmware
+holds no recoverable secret of its own, and the host CLI cannot
+regenerate the I/O key after this phase. If you do not record what
+`provision-token` returns, the only path forward is to throw the chip
+away.
 
 ## Phase 6: end-to-end smoke test (same chip)
 
@@ -146,11 +166,15 @@ When the project is ready for permanent deployment:
 hsm-host lock-data-DANGEROUS
 ```
 
-The CLI prompts for confirmation. After this:
+The CLI prompts for a typed confirmation. No CRC is asked for: the
+secret-bearing slots (`IsSecret=1`) cannot be read back to compute one,
+so the magic-word check in the firmware and the interactive prompt are
+the only safety. After this:
+
 - Slot 8 (I/O master key) becomes immutable.
 - Slots 5 and 6 (PIN, PUK hashes) can only be updated through encrypted
   writes via slot 8, which the firmware handles internally for `SetPin`,
-  `SetPuk`, `UnblockPin`, and `FactoryReset`.
+  `SetPuk`, `UnblockPin`, and `EmergencyReset`.
 
 It is recommended to defer this phase until the firmware is feature-frozen
 to retain the option of re-provisioning during late changes.

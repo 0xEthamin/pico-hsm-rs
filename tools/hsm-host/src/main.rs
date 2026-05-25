@@ -24,22 +24,17 @@ mod device;
 use std::fs;
 use std::io::{self, BufRead, Write};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
-use hsm_usb_protocol::commands::EMERGENCY_RESET_MAGIC;
+use hsm_usb_protocol::commands::
+{
+    EMERGENCY_RESET_MAGIC,
+    LOCK_CONFIG_MAGIC,
+    LOCK_DATA_MAGIC,
+    LOCK_SLOT_MAGIC,
+};
 use hsm_usb_protocol::CommandOpcode;
-
-/// Magic word required to actually lock the config zone. Picked to be
-/// unforgettable in hex (`DEADBEEF`) and clearly not a value that could
-/// arise from typos.
-const LOCK_CONFIG_MAGIC: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
-
-/// Magic word required to actually lock the data zone (`CAFEBABE`).
-const LOCK_DATA_MAGIC: [u8; 4] = [0xCA, 0xFE, 0xBA, 0xBE];
-
-/// Magic word required to actually lock an individual slot (`F00DCAFE`).
-const LOCK_SLOT_MAGIC: [u8; 4] = [0xF0, 0x0D, 0xCA, 0xFE];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -242,28 +237,20 @@ enum Command
         id: u8,
     },
 
-    /// Lock the config zone. **Irreversible.** Requires the CRC-16 of
-    /// the expected config (as printed by `config-generator`) to be
-    /// passed explicitly as a safety check, plus an interactive
-    /// confirmation.
+    /// Lock the config zone. **Irreversible.** Reads the chip's
+    /// configuration zone, computes the CRC-16 over the full 128 bytes,
+    /// and shows it in the double-confirmation prompt. The same CRC is
+    /// passed to the chip, which verifies one last time before
+    /// committing.
     #[command(name = "lock-config-DANGEROUS")]
-    LockConfigDangerous
-    {
-        /// CRC-16 of the config blob, as `0x1234` hex.
-        #[arg(long)]
-        expected_crc: String,
-    },
+    LockConfigDangerous,
 
-    /// Lock the data zone. **Irreversible.** Requires the expected
-    /// CRC-16 of the locked-data-zone contents (as the chip will
-    /// compute it), plus an interactive confirmation.
+    /// Lock the data zone. **Irreversible.** No CRC is checked at lock
+    /// time: every secret-bearing slot has `IsSecret=1` and cannot be
+    /// read back. The double-confirmation prompt is the only safety
+    /// beyond the magic-word check.
     #[command(name = "lock-data-DANGEROUS")]
-    LockDataDangerous
-    {
-        /// CRC-16 of the data zone, as `0x1234` hex.
-        #[arg(long)]
-        expected_crc: String,
-    },
+    LockDataDangerous,
 
     /// Lock an individual slot. **Irreversible.** Requires the slot
     /// index and an interactive confirmation.
@@ -307,14 +294,8 @@ fn main() -> Result<()>
         }
         Command::PinStatus => cmd_pin_status(),
         Command::ReadCounter { id } => cmd_read_counter(id),
-        Command::LockConfigDangerous { expected_crc } =>
-        {
-            cmd_lock_config_dangerous(&expected_crc)
-        }
-        Command::LockDataDangerous { expected_crc } =>
-        {
-            cmd_lock_data_dangerous(&expected_crc)
-        }
+        Command::LockConfigDangerous => cmd_lock_config_dangerous(),
+        Command::LockDataDangerous => cmd_lock_data_dangerous(),
         Command::LockSlotDangerous { slot } => cmd_lock_slot_dangerous(slot),
     }
 }
@@ -337,15 +318,19 @@ fn cmd_info() -> Result<()>
     Ok(())
 }
 
-fn cmd_read_config() -> Result<()>
+/// Read the chip's full 128-byte configuration zone via the device.
+///
+/// The firmware exposes a `ReadConfigZone(block)` opcode that returns
+/// 32 bytes at a time. This helper drives the four calls in order and
+/// assembles the result.
+fn read_full_config_zone(device: &hidapi::HidDevice) -> Result<[u8; 128]>
 {
-    let device = device::open()?;
     let mut full = [0u8; 128];
     for block in 0u8..=3
     {
         let payload = device::send_command
         (
-            &device,
+            device,
             CommandOpcode::ReadConfigZone.as_u8(),
             &[block],
         )?;
@@ -356,6 +341,13 @@ fn cmd_read_config() -> Result<()>
         let start = (block as usize) * 32;
         full[start..start + 32].copy_from_slice(&payload);
     }
+    Ok(full)
+}
+
+fn cmd_read_config() -> Result<()>
+{
+    let device = device::open()?;
+    let full = read_full_config_zone(&device)?;
     for (i, b) in full.iter().enumerate()
     {
         if i % 16 == 0
@@ -614,7 +606,7 @@ fn cmd_provision_token(secrets_file_path: &str) -> Result<()>
     println!("only durable copy.");
     println!();
     println!("Next step: lock the data zone with");
-    println!("  hsm-host lock-data-DANGEROUS --expected-crc <CRC>");
+    println!("  hsm-host lock-data-DANGEROUS");
     println!("once you have verified the slot contents via `read-config`.");
     Ok(())
 }
@@ -854,50 +846,58 @@ fn cmd_read_counter(id: u8) -> Result<()>
     Ok(())
 }
 
-fn cmd_lock_config_dangerous(expected_crc_hex: &str) -> Result<()>
+fn cmd_lock_config_dangerous() -> Result<()>
 {
-    let expected = parse_u16_hex(expected_crc_hex, "expected-crc")?;
+    let device = device::open()?;
+
+    // Read the full 128-byte configuration zone and compute the CRC the
+    // chip will check at lock time. The chip uses the same algorithm as
+    // every other ATECC command (poly 0x8005, init 0x0000, MSB-first,
+    // no reflect, no XOR-out). Reuse the driver's implementation so the
+    // host and the firmware cannot disagree on what "the CRC" means.
+    let zone = read_full_config_zone(&device)?;
+    let crc = atecc608b::crc::crc16(&zone);
+
     println!();
     println!("=== LOCK CONFIG ZONE : IRREVERSIBLE ===");
-    println!("Expected config CRC-16: 0x{expected:04X}");
     println!();
-    println!("This permanently freezes the config zone of the ATECC chip.");
-    println!("Slot policies, key configs, and counters can never be changed");
-    println!("again. If the CRC of the config currently on the chip does not");
-    println!("match 0x{expected:04X}, the chip will refuse and report an error.");
+    println!("Current configuration zone CRC-16 (full 128 bytes): 0x{crc:04X}");
+    println!();
+    println!("This permanently freezes the configuration zone of the ATECC chip.");
+    println!("Slot policies, key configs, and counters can never be changed again.");
+    println!("The chip will recompute this CRC just before committing and refuse");
+    println!("the lock if it has drifted between this read and the lock command.");
     println!();
     confirm_interactive("LOCK-CONFIG")?;
 
     let mut payload = [0u8; 6];
     payload[..4].copy_from_slice(&LOCK_CONFIG_MAGIC);
-    payload[4..].copy_from_slice(&expected.to_le_bytes());
+    payload[4..].copy_from_slice(&crc.to_le_bytes());
 
-    let device = device::open()?;
     device::send_command(&device, CommandOpcode::LockConfigZone.as_u8(), &payload)?;
     println!("Config zone locked.");
     Ok(())
 }
 
-fn cmd_lock_data_dangerous(expected_crc_hex: &str) -> Result<()>
+fn cmd_lock_data_dangerous() -> Result<()>
 {
-    let expected = parse_u16_hex(expected_crc_hex, "expected-crc")?;
     println!();
     println!("=== LOCK DATA ZONE : IRREVERSIBLE ===");
-    println!("Expected data zone CRC-16: 0x{expected:04X}");
     println!();
     println!("This permanently freezes the data zone. Slots can no longer be");
-    println!("written in cleartext; only the encrypted-write protocol against");
-    println!("the IO key (slot 8) remains. Make sure provisioning is complete");
-    println!("(PIN hash, PUK hash, IO key, identity keys) before doing this.");
+    println!("written in cleartext. Only the encrypted-write protocol against");
+    println!("the IO key (slot 8) remains, and only for slots whose WriteConfig");
+    println!("allows it. Make sure provisioning is complete (PIN hash, PUK hash,");
+    println!("IO key, identity keys) before doing this.");
     println!();
-    println!("If the CRC of the data currently on the chip does not match");
-    println!("0x{expected:04X}, the chip will refuse and report a CRC mismatch.");
+    println!("No CRC is checked at lock time: secret-bearing slots (IsSecret=1)");
+    println!("cannot be read back to compute one. The confirmation below is the");
+    println!("only safety beyond the magic-word check in the firmware.");
     println!();
     confirm_interactive("LOCK-DATA")?;
 
-    let mut payload = [0u8; 6];
-    payload[..4].copy_from_slice(&LOCK_DATA_MAGIC);
-    payload[4..].copy_from_slice(&expected.to_le_bytes());
+    let mut payload = [0u8; 4];
+    payload.copy_from_slice(&LOCK_DATA_MAGIC);
 
     let device = device::open()?;
     device::send_command
@@ -964,13 +964,6 @@ fn parse_hex_array<const N: usize>(s: &str, name: &str) -> Result<[u8; N]>
     let mut out = [0u8; N];
     out.copy_from_slice(&bytes);
     Ok(out)
-}
-
-fn parse_u16_hex(s: &str, name: &str) -> Result<u16>
-{
-    let s = s.strip_prefix("0x").unwrap_or(s);
-    u16::from_str_radix(s, 16)
-        .map_err(|e| anyhow!("{name} is not valid u16 hex: {e}"))
 }
 
 /// Print a confirmation prompt and read a line from stdin. Returns OK

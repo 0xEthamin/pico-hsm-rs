@@ -302,10 +302,6 @@ where
     // arming the wait.
     TOUCH_CONFIRMED.reset();
 
-    // Drain any stale TOUCH_CONFIRMED pulse from a previous run before
-    // arming the wait.
-    TOUCH_CONFIRMED.reset();
-
     // Notify the state machine that a sign request needs a touch.
     post_event(Event::SignRequested);
 
@@ -540,9 +536,12 @@ where
 // 1. Parse the payload. A magic-mismatch maps to `LockMagicMismatch`,
 //    a wrong length to `InvalidPayload`.
 // 2. Forward the validated arg(s) to the service.
-// 3. Map chip-side errors (most importantly, CRC mismatch reported by
-//    the chip as ExecutionError) to `LockCrcMismatch` for clarity on
-//    the host side.
+// 3. Map chip-side errors to a stable response. For `LockConfigZone`,
+//    a CRC mismatch from the chip surfaces as `ExecutionError` and is
+//    rewritten to `LockCrcMismatch` for clarity on the host side.
+//    `LockDataZone` and `LockSlot` do not ask the chip to verify any
+//    CRC (the host cannot compute one over `IsSecret=1` slots), so a
+//    `LockCrcMismatch` cannot occur for them.
 
 async fn handle_lock_config_zone<H, C>
 (
@@ -582,16 +581,16 @@ where
     C: Clock,
     H::Error: core::fmt::Debug,
 {
-    let expected_crc = match parse_lock_data_zone(payload)
+    match parse_lock_data_zone(payload)
     {
-        Ok(v) => v,
+        Ok(()) => {}
         Err(hsm_usb_protocol::commands::PayloadError::MagicMismatch) =>
         {
             return write_status(tx_buf, ResponseStatus::LockMagicMismatch, &[]);
         }
         Err(_) => return write_status(tx_buf, ResponseStatus::InvalidPayload, &[]),
-    };
-    match service.lock_data_zone(expected_crc).await
+    }
+    match service.lock_data_zone().await
     {
         Ok(()) => write_status(tx_buf, ResponseStatus::Ok, &[]),
         Err(err) => write_lock_error(tx_buf, &err),
@@ -887,7 +886,7 @@ where
 /// Response payload: 4 bytes little-endian, the chip's `u32` count
 /// unaltered. The host CLI decodes this into a decimal + hex value for
 /// the operator. Unlike [`handle_get_pin_status`] this does **not** map
-/// the count to "tries remaining" — the goal is diagnostic
+/// the count to "tries remaining", the goal is diagnostic
 /// transparency on what the chip actually stores.
 async fn handle_read_counter<H, C>
 (

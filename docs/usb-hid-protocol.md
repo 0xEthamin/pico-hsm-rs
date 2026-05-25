@@ -1,7 +1,7 @@
 # USB-HID protocol
 
 The mini-HSM exposes a vendor-defined HID interface with fixed-size
-64-byte reports in each direction. Linux, macOS, and Windows all support
+128-byte reports in each direction. Linux, macOS, and Windows all support
 this without a kernel driver.
 
 ## VID and PID
@@ -18,13 +18,13 @@ graduates beyond the hackathon, applying for a free PID at
 
 ## Report layout
 
-Every report, in either direction, is exactly 64 bytes:
+Every report, in either direction, is exactly 128 bytes:
 
 ```
 Byte 0    : Opcode (host -> token) or status code (token -> host)
 Bytes 1-2 : Payload length, little-endian u16
 Bytes 3-N : Payload
-Bytes ... : Zero padding up to byte 63
+Bytes ... : Zero padding up to byte 127
 ```
 
 The canonical encoder and decoder live in
@@ -58,20 +58,23 @@ truth for opcode values, payload formats, and parsing logic.
 | `0x12` | ProvisionInitialPin | empty                                                      | Writes `SHA-256("0000" \|\| pin_salt)` into slot 5. The salt is derived on-chip from the chip serial; the host does not need to compute it. Only legal while the data zone is unlocked. |
 | `0x13` | ProvisionInitialPuk | empty                                                      | Generates a random 8-digit PUK from the chip RNG, writes `SHA-256(puk \|\| puk_salt)` into slot 6, and returns the PUK in the response payload. **One-time** read of the PUK. |
 | `0x14` | ProvisionIoKey   | empty                                                         | Generates 32 random bytes via the chip RNG, writes them into slot 8, and returns the value in the response payload. **One-time** read of the IO key. The host must persist it. |
-| `0xF0` | LockConfigZone   | `magic: [u8; 4], expected_crc: [u8; 2]`                       | **Irreversible.** Firmware verifies the chip's current configuration CRC equals `expected_crc` before issuing `Lock(config)`. |
-| `0xF1` | LockDataZone     | `magic: [u8; 4], expected_crc: [u8; 2]`                       | **Irreversible.** Verifies a CRC of the current data zone state.               |
+| `0x15` | ReadCounter      | `id: u8` (0 or 1)                                             | Reads the current value of `Counter0` (PIN attempts, `id=0`) or `Counter1` (PUK attempts, `id=1`). Returns the 8-byte raw counter encoding. The CLI decodes it via the algorithm in `tools/config-generator/src/counter_encoding.rs`. |
+| `0xF0` | LockConfigZone   | `magic: [u8; 4], crc: [u8; 2]`                                | **Irreversible.** Host reads the current configuration zone, computes the CRC-16 over the full 128 bytes, and passes it here. The chip recomputes the same CRC and refuses the command if it has drifted. |
+| `0xF1` | LockDataZone     | `magic: [u8; 4]`                                              | **Irreversible.** No CRC: secret-bearing slots (`IsSecret=1`) cannot be read back to compute one. The double-confirmation in the host CLI and the magic-word check are the only guards. |
 | `0xF2` | LockSlot         | `magic: [u8; 4], slot: u8`                                    | **Irreversible.** Permanently freezes one slot. Requires `KeyConfig.Lockable=1` on that slot. |
 
-For the project's mini-HSM configuration, the expected CRC for
-`LockConfigZone` is **`0xC92D`** (see `docs/config-zone-layout.md`).
+The CRC passed with `LockConfigZone` is computed by the host CLI from
+a fresh `ReadConfigZone` of the chip, over the full 128 bytes (factory
+area included). It is not a constant: bytes 0..16 of the configuration
+zone vary per chip. See `tools/hsm-host/src/main.rs::cmd_lock_config_dangerous`.
 
 The "magic" word on Lock commands is a fixed 4-byte sentinel checked by
 the firmware before issuing the chip's `Lock` command. It is a final
 sanity guard against bit-flips in the USB report or a host CLI that
 forgot to pass the confirmation flag. The current values are:
 - `LockConfigZone` magic: `0xDE 0xAD 0xBE 0xEF`
-- `LockDataZone` magic: `0xCA 0xFE 0xBA 0xBE`
-- `LockSlot` magic: `0xCA 0xFE 0xBA 0xBE`
+- `LockDataZone` magic:   `0xCA 0xFE 0xBA 0xBE`
+- `LockSlot` magic:       `0xF0 0x0D 0xCA 0xFE`
 
 ## Status codes (token to host)
 
@@ -154,18 +157,25 @@ Token -> host: `0B 01 00 <tries_remaining> <padding>`
 
 ### Lock confirmation flow (configuration zone)
 
+Host CLI sequence before sending the command:
+1. Issue four `ReadConfigZone(block)` calls and concatenate the
+   128 bytes returned.
+2. Compute the CRC-16/ATECC over those 128 bytes. For example, if the
+   value comes out to `0xC92D`, encode it little-endian as `2D C9`.
+3. Print the CRC in a double-confirmation prompt and wait for the user
+   to type the magic phrase.
+
 Host -> token:
 ```
-F0 06 00 DE AD BE EF 23 CB <padding>
+F0 06 00 DE AD BE EF 2D C9 <padding>
 ```
-(`LockConfigZone` with magic `DE AD BE EF` and `expected_crc = 0xC92D`
-encoded little-endian as `23 CB`.)
+(`LockConfigZone` with magic `DE AD BE EF` and `crc = 0xC92D` encoded
+little-endian as `2D C9`.)
 
 The firmware:
 1. Validates the magic word. If wrong, respond `08 LockMagicMismatch`.
-2. Reads the current configuration zone from the chip.
-3. Computes its CRC over bytes 16-127.
-4. Compares with the supplied `expected_crc`. If different, respond `09
-   LockCrcMismatch`.
-5. Issues the chip's `Lock(config)` command.
-6. Respond `Ok`.
+2. Forwards the supplied CRC to the chip in the `Lock(config)` command.
+3. The chip recomputes the CRC of its own current configuration and
+   refuses if it disagrees. The firmware surfaces this as `09
+   LockCrcMismatch` for the host.
+4. On success, respond `Ok`.

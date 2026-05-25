@@ -114,7 +114,7 @@ fn genkey_public_slot_0_uses_mode_zero()
 }
 
 #[test]
-fn genkey_create_slot_1_changes_param2()
+fn genkey_public_slot_1_changes_param2()
 {
     // Reference frame body: 07 40 00 01 00 09 85
     const COMMAND: [u8; 8] = [0x03, 0x07, 0x40, 0x00, 0x01, 0x00, 0x09, 0x85];

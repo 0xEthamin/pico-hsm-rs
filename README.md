@@ -69,13 +69,18 @@ the dongle can be used, an operator must:
 
 1. Generate the configuration blob via `cargo run -p config-generator`.
 2. Write it to the chip via `hsm-host write-config`.
-3. Lock the configuration zone via `hsm-host lock-config-DANGEROUS
-   --expected-crc 0xC92D`. **This is irreversible.**
-4. Provision the I/O master key in slot 8, the PIN hash in slot 5, the
-   PUK hash in slot 6, and generate the primary identity key with
-   `GenKey(slot=0)`.
-5. Optionally, lock the data zone for permanent hardening, or defer that
-   step indefinitely.
+3. Lock the configuration zone via `hsm-host lock-config-DANGEROUS`.
+   **This is irreversible.** The CLI reads the chip's configuration,
+   computes the CRC-16 over the full 128 bytes, shows it in a
+   double-confirmation prompt, and forwards it to the chip for a final
+   match check.
+4. Provision the data zone with `hsm-host provision-token`. The
+   firmware generates the I/O master key (slot 8) and PUK from the
+   chip's RNG, computes the initial PIN hash on-chip, and returns the
+   PUK and I/O master key in cleartext. **These are the only copies.**
+   Back them up to a password manager.
+5. Optionally, lock the data zone for permanent hardening with
+   `hsm-host lock-data-DANGEROUS`, or defer that step indefinitely.
 
 See [`docs/bring-up-procedure.md`](docs/bring-up-procedure.md) for the
 full step-by-step walk-through.

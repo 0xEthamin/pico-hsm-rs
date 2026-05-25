@@ -199,24 +199,33 @@ pub(crate) fn checkmac_response
 /// Build the `other_data` block for a `CheckMac` call against `key_id` on
 /// this project's slots, with zero OTP coupling.
 ///
-/// `chip_serial[0..2]` are the SN[0..2] bytes (the so-called "SN8" plus
-/// the two low bytes), which the chip mixes in at the expected offsets.
+/// `other_data` is 13 bytes long. Bytes 0..4 carry the opcode, mode, and
+/// `key_id` that the chip substitutes into the hash at message offsets
+/// 84..88. Bytes 4..7 are reserved for OTP coupling, which we never use
+/// (kept at zero). Bytes 7..13 are six free-form bytes that the chip
+/// hashes verbatim at message offsets 80..84 and 88..96. Their actual
+/// values are not constrained by the protocol: any sequence works as long
+/// as both the host (in [`checkmac_response`]) and the chip-side computation
+/// receive the same bytes. We seed them from `chip_serial` to bind a
+/// successful `CheckMac` to a specific chip, defeating a replay of a
+/// pre-computed response against a different physical chip with the
+/// same slot value.
 #[must_use]
 pub(crate) fn checkmac_other_data(key_id: u8, chip_serial: &[u8; 9]) -> [u8; 13]
 {
     let mut data = [0u8; 13];
-    // CheckMac opcode and mode bytes that the chip itself substitutes.
+    // Bytes 0..4: command shape that the chip rebuilds for verification.
     data[0] = 0x28; // OP_CHECKMAC
     data[1] = 0x00; // CHECKMAC_MODE_CHALLENGE
     data[2] = key_id;
     data[3] = 0x00;
-    // OTP bytes 8..11 are zero (we do not use OTP).
-    // SN[8] = chip_serial[0] (low byte of the SN word at offset 8).
+    // Bytes 4..7: OTP coupling area. We do not use OTP, leave at zero.
+    // Bytes 7..13: free-form bytes hashed verbatim by the chip. Seeded
+    // from the chip serial so that the same slot value on a different
+    // physical chip cannot replay a previously captured response.
     data[7] = chip_serial[0];
-    // SN[0..2] = chip_serial[0..2].
     data[8] = chip_serial[0];
     data[9] = chip_serial[1];
-    // SN[2..3] gets pulled separately by the chip via the layout above.
     data[10] = chip_serial[2];
     data[11] = chip_serial[3];
     data[12] = 0x00;

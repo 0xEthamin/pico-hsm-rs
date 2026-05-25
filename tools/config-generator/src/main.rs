@@ -36,9 +36,15 @@ mod counter_encoding;
 mod crc;
 
 /// Expected CRC-16 of the writable portion (bytes 16 to 127) of the
-/// generated blob. This is a constant safety check. If `blob::build()`
-/// ever returns a different value, something has drifted from the
-/// specification.
+/// generated blob. This is an internal sanity check: if `blob::build()`
+/// ever returns a different value, the generator has drifted from the
+/// specification in `docs/config-zone-layout.md`.
+///
+/// **Not the argument of the `Lock(config)` command.** The chip computes
+/// its CRC over the full 128-byte configuration zone, factory area
+/// included. That value is per-chip and is computed at lock time by the
+/// host CLI directly from a `ReadConfigZone` of the chip. See
+/// `tools/hsm-host/src/main.rs::cmd_lock_config_dangerous`.
 const EXPECTED_CRC: u16 = 0xC92D;
 
 #[derive(Parser, Debug)]

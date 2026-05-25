@@ -36,13 +36,16 @@
 //!
 //! - Lock config zone: only after `WriteConfigZone` has been replayed,
 //!   read back, and bit-compared against the expected blob. The CLI tool
-//!   `hsm-host lock-config-DANGEROUS --expected-crc <hex>` computes the
-//!   CRC of what's currently on the chip and refuses to send the Lock if
-//!   it doesn't match what the user typed on the command line.
+//!   `hsm-host lock-config-DANGEROUS` reads the chip's current
+//!   configuration zone, computes the CRC over the full 128 bytes, shows
+//!   it in the double-confirmation prompt, and only then sends the Lock
+//!   command with that CRC. The chip verifies one last time before
+//!   committing.
 //!
 //! - Lock data zone: only after every data slot the project expects has
 //!   been provisioned (PIN hash, PUK hash, IO key, and at least one ECC
-//!   keypair generated on chip via `GenKey`).
+//!   keypair generated on chip via `GenKey`). No CRC is checked at lock
+//!   time: secret-bearing slots are not readable.
 //!
 //! - Lock slot: only after the per-slot content has been verified.
 //!
@@ -64,12 +67,15 @@
 //! for zone locks. For slot lock we set it (the chip does not check a CRC
 //! for individual slots in our usage).
 //!
-//! ## Encoding the CRC for zone locks
+//! ## Encoding the CRC for the config-zone lock
 //!
 //! The chip expects `param2` little-endian. Pass the CRC computed
 //! identically to the chip's algorithm (CCITT variant used everywhere in
-//! `CryptoAuthLib`). `tools/config-generator` and the CLI helper produce
-//! such a CRC.
+//! `CryptoAuthLib`). The CLI helper in `tools/hsm-host` reads the
+//! configuration zone from the chip, computes that CRC over the full
+//! 128 bytes (factory area included), and passes the result to the
+//! firmware. The chip recomputes the same CRC and rejects the command
+//! if the two disagree.
 
 use crate::error::AteccError;
 use crate::opcodes::{EXEC_TIME_LOCK_MS, OP_LOCK};
@@ -79,8 +85,15 @@ use crate::{AteccChannel, AteccHal};
 /// Mode bits for a config-zone lock, with CRC verification.
 const LOCK_MODE_CONFIG_ZONE_VERIFY_CRC: u8 = 0b0000_0000;
 
-/// Mode bits for a data-zone lock, with CRC verification.
-const LOCK_MODE_DATA_ZONE_VERIFY_CRC: u8 = 0b0000_0001;
+/// Mode bits for a data-zone lock, with the chip's CRC verification
+/// disabled. The data zone holds secrets (slots 5, 6, 8 contain hashed
+/// PIN/PUK and the I/O master key) that cannot be read back even with
+/// the data zone unlocked, because every secret-bearing slot has
+/// `IsSecret=1`. There is therefore no way for the host to compute a
+/// meaningful CRC of what is about to be locked, and no value in asking
+/// the chip to verify one. We rely on the magic-word guard at the USB
+/// layer and the interactive double confirmation in the host CLI.
+const LOCK_MODE_DATA_ZONE_NO_CRC: u8 = 0b1000_0001;
 
 /// Mode bits for an individual slot lock, no CRC verification.
 const LOCK_MODE_SLOT_NO_CRC_BASE: u8 = 0b1000_0010;
@@ -132,22 +145,27 @@ impl<H: AteccHal> AteccChannel<'_, H>
     /// via the I/O Protection Key, and even those are subject to per-slot
     /// `EncryptWrite` policy.
     ///
-    /// `expected_crc` is the CRC-16/CCITT of the slot contents as the
-    /// host believes them to be. The chip recomputes and compares.
+    /// Unlike [`Self::lock_config_zone`], this call does **not** ask the
+    /// chip to verify a CRC of the data zone before locking. Every
+    /// secret-bearing slot on this project has `IsSecret=1`, so the host
+    /// cannot read the current slot contents back to compute a meaningful
+    /// CRC. The safety guard is the magic-word check in the firmware plus
+    /// the interactive double confirmation in the host CLI.
     ///
     /// # Errors
-    /// As for [`Self::lock_config_zone`].
+    /// - [`AteccError::Chip`] if the chip refuses the command (for example
+    ///   when the configuration zone is not yet locked).
+    /// - Other [`AteccError`] variants for I2C or wake failures.
     pub async fn lock_data_zone
     (
         &mut self,
-        expected_crc: u16,
     ) -> Result<(), AteccError<H::Error>>
     {
         self.execute_command_status
         (
             OP_LOCK,
-            LOCK_MODE_DATA_ZONE_VERIFY_CRC,
-            expected_crc,
+            LOCK_MODE_DATA_ZONE_NO_CRC,
+            0x0000,
             &[],
             EXEC_TIME_LOCK_MS,
         )

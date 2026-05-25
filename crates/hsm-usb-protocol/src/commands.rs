@@ -190,14 +190,20 @@ pub enum CommandOpcode
     /// state during development.
     ReadCounter         = 0x15,
 
-    // Lock - isolated, protected by a magic word and a CRC. Never called
-    // from automated flows: see crates/atecc608b/src/command/lock.rs and
-    // the project's design decisions.
+    // Lock - isolated, protected by a magic word. Never called from
+    // automated flows: see crates/atecc608b/src/command/lock.rs and the
+    // project's design decisions. The configuration-zone lock also
+    // carries a CRC; the data-zone and per-slot locks do not (the
+    // secret-bearing slots cannot be read back to compute one).
     /// `0xF0` - Lock the config zone permanently.
-    /// Payload: `[magic: [u8; 4], expected_crc: [u8; 2]]`.
+    /// Payload: `[magic: [u8; 4], crc: [u8; 2]]`. The CRC is computed
+    /// by the host CLI over the full 128 bytes of the current
+    /// configuration zone and is verified one last time by the chip
+    /// before commit.
     LockConfigZone     = 0xF0,
     /// `0xF1` - Lock the data zone permanently.
-    /// Payload: `[magic: [u8; 4], expected_crc: [u8; 2]]`.
+    /// Payload: `[magic: [u8; 4]]`. No CRC: secret-bearing slots cannot
+    /// be read back to compute one.
     LockDataZone       = 0xF1,
     /// `0xF2` - Lock a single slot permanently.
     /// Payload: `[magic: [u8; 4], slot: u8]`.
@@ -462,18 +468,27 @@ pub fn parse_emergency_reset(payload: &[u8]) -> Result<[u8; 32], PayloadError>
 
 /// Magic word for [`CommandOpcode::LockConfigZone`]. Picked to be a
 /// distinctive 32-bit value (`DE AD BE EF`).
-pub(crate) const LOCK_CONFIG_MAGIC: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
+///
+/// Exposed `pub` so the host CLI in `tools/hsm-host` can build the same
+/// payload byte sequence without re-declaring the constant. The crate is
+/// the single source of truth for the wire format; the CLI is a consumer.
+pub const LOCK_CONFIG_MAGIC: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
 
 /// Magic word for [`CommandOpcode::LockDataZone`] (`CA FE BA BE`).
-pub(crate) const LOCK_DATA_MAGIC: [u8; 4] = [0xCA, 0xFE, 0xBA, 0xBE];
+///
+/// See [`LOCK_CONFIG_MAGIC`] for the rationale behind the `pub` exposure.
+pub const LOCK_DATA_MAGIC: [u8; 4] = [0xCA, 0xFE, 0xBA, 0xBE];
 
 /// Magic word for [`CommandOpcode::LockSlot`] (`F0 0D CA FE`).
-pub(crate) const LOCK_SLOT_MAGIC: [u8; 4] = [0xF0, 0x0D, 0xCA, 0xFE];
+///
+/// See [`LOCK_CONFIG_MAGIC`] for the rationale behind the `pub` exposure.
+pub const LOCK_SLOT_MAGIC: [u8; 4] = [0xF0, 0x0D, 0xCA, 0xFE];
 
 /// Parse the payload of [`CommandOpcode::LockConfigZone`].
 ///
-/// Layout: `magic (4) || expected_crc (2 LE)`. Returns the CRC if the
-/// magic matches.
+/// Layout: `magic (4) || crc (2 LE)`. Returns the CRC if the magic
+/// matches. The CRC is the CRC-16 of the chip's current 128-byte
+/// configuration zone, computed by the host CLI just before sending.
 ///
 /// # Errors
 /// - [`PayloadError::WrongLen`] if the payload is not exactly 6 bytes.
@@ -491,18 +506,23 @@ pub fn parse_lock_config_zone(payload: &[u8]) -> Result<u16, PayloadError>
 
 /// Parse the payload of [`CommandOpcode::LockDataZone`].
 ///
-/// Layout: `magic (4) || expected_crc (2 LE)`.
+/// Layout: `magic (4)`. No CRC accompanies a data-zone lock because
+/// secret-bearing slots cannot be read back to compute one. The
+/// double-confirmation in the host CLI is the only safety beyond the
+/// magic word.
 ///
 /// # Errors
-/// As for [`parse_lock_config_zone`] with `LOCK_DATA_MAGIC`.
-pub fn parse_lock_data_zone(payload: &[u8]) -> Result<u16, PayloadError>
+/// - [`PayloadError::WrongLen`] if the payload is not exactly 4 bytes.
+/// - [`PayloadError::MagicMismatch`] if the first 4 bytes are not
+///   `LOCK_DATA_MAGIC`.
+pub fn parse_lock_data_zone(payload: &[u8]) -> Result<(), PayloadError>
 {
-    require_len(payload, LOCK_MAGIC_LEN + 2)?;
+    require_len(payload, LOCK_MAGIC_LEN)?;
     if payload[0..LOCK_MAGIC_LEN] != LOCK_DATA_MAGIC
     {
         return Err(PayloadError::MagicMismatch);
     }
-    Ok(u16::from_le_bytes([payload[LOCK_MAGIC_LEN], payload[LOCK_MAGIC_LEN + 1]]))
+    Ok(())
 }
 
 /// Parse the payload of [`CommandOpcode::LockSlot`].

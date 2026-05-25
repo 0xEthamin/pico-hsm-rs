@@ -78,10 +78,10 @@ and any later update goes through an encrypted write keyed by slot 8.
 | Stolen token, attacker tries to sign         | Hardware-enforced PIN via `ReqAuth=1` on slot 0-4, 7, 9-15. Slot 5 blocks after 5 wrong PIN tries.      |
 | Stolen token plus observed PIN               | Touch-to-sign: physical button needed for every signature.                                              |
 | Attacker desolders chip and probes I2C       | Private key never leaves the chip. `IsSecret=1` on every secret-bearing slot.                           |
-| Attacker dumps RP2040 flash                  | I/O master key derived from chip serial plus firmware-side pepper. Useless without the physical chip.   |
+| Attacker dumps RP2040 flash                  | The firmware holds no long-term secret. The I/O master key lives in chip slot 8 with `IsSecret=1`. Flash dumps reveal code only. |
 | Attacker brute-forces PIN over USB           | Counter0 caps PIN attempts at 5 per cycle, slot self-disables. Refresh of the batch only via PUK.       |
 | Repeated PUK guessing                        | Counter1 caps PUK attempts at 10 per cycle. Chip remains usable for signing, only PUK becomes unavailable. |
-| Stuck in unrecoverable state after PIN+PUK   | `FactoryReset` regenerates slots 0-4 and 7, resets PIN to default. Counters are not reset (cannot be).  |
+| Stuck in unrecoverable state after PIN+PUK   | `EmergencyReset` regenerates ECC keys in slots 0-4 and 7, resets PIN to its default. Counters are not reset (cannot be). |
 
 The PUK-related risk window is bounded by the 21-bit Counter1: the chip
 supports about 2 million ticks. Each PUK reset cycle consumes 10 ticks
@@ -110,19 +110,27 @@ The token's behavior is driven by an event-driven state machine in
                     |     |   Authenticated    |  (green slow pulse)
                     |     |   30 s session     |
                     |     ----------------------
-                    |       | timeout  | Sign command
-                    |       |          v
-                    |       |       -------------------
-                    |       |       | WaitingForTouch | (yellow LED solid)
-                    |       |       -------------------
-                    |       |         | touch       | 30 s timeout
-                    |       |         v             v
-                    |       |       -----------  TouchTimeout -> Idle
-                    |       |       | Signing |
-                    |       |       -----------
-                    ----------------------
-                             back to Idle
+                    |       ^  | timeout    | Sign command
+                    |       |  v            v
+                    |       | back        -------------------
+                    |       | to Idle    | WaitingForTouch | (yellow LED solid)
+                    |       |             -------------------
+                    |       |              | touch       | 30 s timeout
+                    |       |              v             v
+                    |       |       -----------    TouchTimeout
+                    |       |       | Signing |    back to Authenticated
+                    |       |       -----------    (session still active)
+                    |       |              |
+                    |       --------------- back to Authenticated
+                    |
+                    --- back to Idle on Authenticated timeout
 ```
+
+A `TouchTimeout` does not end the PIN session: only the per-sign 30 s
+touch window has expired. The user can attempt another `Sign` until the
+30 s session timer fires, at which point the state machine returns to
+`Idle`. This keeps the user from having to re-enter the PIN if their
+first touch was missed.
 
 The same state machine handles re-`VerifyPin` while already
 `Authenticated` (it extends the session timer), `Sign` commands without

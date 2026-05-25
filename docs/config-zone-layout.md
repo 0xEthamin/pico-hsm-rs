@@ -88,13 +88,16 @@ serial[4..8]  = config_bytes[8..12]  (SN47 field)
 serial[8]     = config_bytes[12]     (SN8 field, always 0xEE on ATECC608)
 ```
 
-This serial number is unique per physical chip. The mini-HSM firmware uses
-it as an input to the derivation of the slot 8 I/O Protection master key
-(combined with a static pepper baked into the firmware binary), which makes
-the master key both deterministic for a given chip+firmware combination
-and unrecoverable without physical access to both. The serial is also used
-to identify a token across reboots without storing any state in the chip's
-data zone.
+This serial number is unique per physical chip. The mini-HSM firmware
+uses it as a per-chip salt mixed into the `CheckMac` MAC computation
+(via the `other_data` field) so that a successful CheckMac response on
+one chip cannot be replayed against another chip carrying the same slot
+value. It is also used to identify a token across reboots without
+storing any state in the chip's data zone.
+
+The slot 8 I/O Protection master key is **not** derived from the
+serial. It is pure random output from the chip's RNG at provisioning
+time. See `## Slot 8: I/O Protection master key` below for details.
 
 The bring-up procedure on a fresh chip is therefore:
 
@@ -320,10 +323,16 @@ The key in slot 8 is used by the firmware to:
 - Encrypt imports of external ECC private keys into slots 2-4, 7, 9-15
   via PrivWrite.
 
-The slot 8 master key is derived from the chip serial number and a static
-"pepper" baked into the firmware binary. This makes it deterministic for a
-given chip+firmware combination, but unrecoverable without access to both
-the physical chip and the firmware source.
+The slot 8 master key is **32 random bytes drawn from the chip's RNG**
+at provisioning time and never persisted anywhere on the device. The
+host CLI returns the cleartext value once, in the response to
+`ProvisionIoKey`, and the operator is responsible for backing it up.
+The firmware holds no copy and cannot regenerate it.
+
+This places the entire trust on the chip's RNG (DRBG-NIST SP 800-90A) at
+provisioning time, with the firmware acting as a transparent conduit.
+The advantage is that no long-term secret is baked into the firmware
+binary: an attacker dumping flash gains nothing beyond the source code.
 
 | Field        | Value | Reason                                                          |
 |--------------|-------|-----------------------------------------------------------------|
@@ -523,14 +532,15 @@ The CRC-16 (polynomial 0x8005, init 0x0000, MSB first, little-endian
 output, as defined in `crates/atecc608b/src/crc.rs`) of bytes 16-127 is:
 
 ```
-CRC-16 = 0xC92D
+CRC-16 (writable portion) = 0xC92D
 ```
 
-This value must be passed as the `expected_crc` parameter of the
-`LockConfigZone` HID command. The firmware will refuse to issue the chip's
-Lock command if the CRC of the current configuration zone on the chip does
-not match. This is the safety mechanism that prevents accidental locking of
-an incorrect configuration.
+This is the value the **`config-generator` blob** must produce. It is a
+sanity check that the generator stays in sync with this specification,
+not the value passed to `LockConfigZone`. The CRC the chip verifies at
+lock time is computed over the **full 128 bytes**, including the per-chip
+factory area, and is produced live by the host CLI from a fresh
+`ReadConfigZone`.
 
 ## Verification procedure
 
@@ -549,36 +559,48 @@ manual verification:
 4. Compare bit-by-bit. Bytes 0-15 will be the factory values; bytes 16-127
    must match the generated blob exactly.
 5. Compute the CRC-16 of the read-back bytes 16-127. It must equal
-   `0xC92D`.
-6. Only then, the operator may invoke
-   `LockConfigZone --expected-crc 0xC92D` to commit the configuration
-   irreversibly.
+   `0xC92D`. This is what `config-generator` would have produced from
+   scratch; matching this value confirms the chip carries the intended
+   configuration.
+6. Only then, the operator may invoke `lock-config-DANGEROUS`. The CLI
+   reads the chip's configuration once more, recomputes the CRC over the
+   full 128 bytes (factory area included), shows it in the
+   double-confirmation prompt, and forwards it to the chip. The chip
+   recomputes the CRC one last time and refuses if the configuration has
+   drifted between the read and the lock.
 
 ## Provisioning workflow (post config-lock)
 
 Once the configuration zone is locked, the operator provisions the data
-zone as follows. None of these steps lock the data zone. The data zone
-lock is a separate, optional, irreversible operation.
+zone by invoking `hsm-host provision-token`. None of the steps below
+lock the data zone. The data zone lock is a separate, optional,
+irreversible operation.
 
-1. Generate the I/O Protection master key: the firmware derives it from
-   the chip serial number and the static firmware pepper. The serial is
-   read via `Read(config, block 0)`.
-2. Write the I/O master key to slot 8 in cleartext (allowed by
-   `SlotConfig[8].WriteConfig = Always`).
-3. Generate the initial PIN hash: `SHA-256("0000" || pin_salt)`.
-4. Write the PIN hash to slot 5 in cleartext (allowed by
-   `SlotConfig[5].WriteConfig = Always_then_Encrypt`).
-5. Generate the random PUK and its hash: `SHA-256(puk || puk_salt)`.
-6. Write the PUK hash to slot 6 in cleartext.
-7. Display the generated PUK to the operator via the host CLI. The PUK is
-   not retained anywhere else.
-8. Issue `GenKey(slot=0)` to materialize the primary identity key. Record
-   the resulting public key.
+The orchestrator issues these opcodes in order:
 
-The data zone lock is then optional. Locking it freezes the slot 8 master
-key and prevents any further cleartext writes anywhere on the chip. After
-data lock, PIN and PUK updates go through the encrypted-write path
-(SlotConfig WriteConfig = Always_then_Encrypt becomes Encrypted-only).
+1. `ProvisionInitialPin`. The firmware computes
+   `SHA-256("0000" || pin_salt)` on the chip and writes the result into
+   slot 5 (allowed by `SlotConfig[5].WriteConfig = Always_then_Encrypt`
+   while the data zone is still unlocked).
+2. `ProvisionInitialPuk`. The firmware draws 8 ASCII digits from the
+   chip RNG, computes `SHA-256(puk || puk_salt)` on the chip, writes the
+   hash into slot 6, and returns the cleartext PUK in the response.
+3. `ProvisionIoKey`. The firmware draws 32 random bytes from the chip
+   RNG, writes them into slot 8 (allowed by
+   `SlotConfig[8].WriteConfig = Always`), and returns the cleartext key
+   in the response.
+4. `GenKey(slot=0)` to materialise the primary identity key. The
+   resulting public key is returned and recorded in the secrets file.
+
+The host CLI persists the PUK, the I/O master key, the chip serial, and
+the slot-0 public key to a JSON secrets file. These are the only copies
+of the PUK and the I/O master key: the firmware retains no recoverable
+form of either.
+
+The data zone lock is then optional. Locking it freezes the slot 8
+master key and prevents any further cleartext writes anywhere on the
+chip. After data lock, PIN and PUK updates go through the encrypted-write
+path (`SlotConfig WriteConfig = Always_then_Encrypt` becomes encrypted-only).
 
 It is recommended to defer the data zone lock until late in development to
 keep the option of reprovisioning.

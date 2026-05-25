@@ -15,7 +15,7 @@
 
 //! Status bytes returned by the token in every response report.
 //!
-//! Wire format mirrors [`crate::commands`]: a single 64-byte HID report
+//! Wire format mirrors [`crate::commands`]: a single 128-byte HID report
 //! whose opcode is one of these [`ResponseStatus`] values and whose
 //! payload depends on the originating command.
 

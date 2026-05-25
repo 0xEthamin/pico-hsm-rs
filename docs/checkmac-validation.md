@@ -115,10 +115,14 @@ specified against.
 ### Triage when digests differ
 
 The most common discrepancy is the layout of the serial bytes mixed
-into the hash. The ATECC formula uses `SN[2..=3]` (one byte) and
-`SN[4..=7]` (four bytes); off-by-one indices on `chip_serial[...]`
-produce a completely different digest. Walk through the slice
-operations in `checkmac_response` against the C source line by line.
+into the hash. As of CryptoAuthLib `lib/calib/calib_command.c`, the
+ATECC pulls `SN[8]` (one byte at chip address 9, i.e. `chip_serial[8]`
+in the 9-byte serial) and `SN[0..2]` (the two low bytes of the serial,
+i.e. `chip_serial[0..2]`). Our `checkmac_response` mirrors this with
+`chip_serial[8..9]` and `chip_serial[0..2]`. Off-by-one indices on
+these slices produce a completely different digest. Walk through the
+slice operations in `checkmac_response` against the C source line by
+line.
 
 
 ## Approach B: validate on the chip itself, no C toolchain
