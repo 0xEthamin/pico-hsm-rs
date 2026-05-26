@@ -19,7 +19,7 @@
 //! could be programmed differently. Putting the convention in one place keeps
 //! it visible and reviewable.
 //!
-//! The authoritative reference is [`docs/config-zone-layout.md`]. This module
+//! The authoritative reference is docs/config-zone-layout.md. This module
 //! exposes named constants for the slots the service code references; it
 //! must stay in sync with the configuration zone the chip is provisioned
 //! with.

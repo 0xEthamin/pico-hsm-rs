@@ -1,0 +1,178 @@
+name: 'Documentation'
+
+# Build and publish rustdoc to GitHub Pages.
+#
+# The workspace splits into two compilation targets:
+# - host (x86_64-unknown-linux-gnu) for every crate except hsm-firmware.
+#   `cargo doc` picks them up via `default-members` in the root Cargo.toml.
+# - thumbv6m-none-eabi for hsm-firmware, which depends on embassy-rp and
+#   cortex-m and only compiles for Cortex-M0.
+#
+# Each target lands in its own subdirectory under `site/`. A custom
+# landing page at `site/index.html` points users to either tree.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libudev-dev \
+            pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv6m-none-eabi
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-doc-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build host documentation
+        run: |
+          cargo doc \
+            --no-deps \
+            --document-private-items \
+            --target-dir target/doc-host
+
+      - name: Build firmware documentation
+        run: |
+          cargo doc \
+            -p hsm-firmware \
+            --no-deps \
+            --document-private-items \
+            --target thumbv6m-none-eabi \
+            --target-dir target/doc-firmware
+
+      - name: Generate host index page
+        run: |
+          mkdir -p doc-build/host
+          cat > doc-build/host-index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <title>mini-hsm - host crates</title>
+              <style>
+                  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #2b2b2b; line-height: 1.6; }
+                  h1 { color: #3d6b3c; border-bottom: 1px solid #ddd; padding-bottom: 0.4rem; }
+                  ul { padding-left: 1.2rem; }
+                  li { margin: 0.3rem 0; }
+                  a { color: #3d6b3c; text-decoration: none; }
+                  a:hover { text-decoration: underline; }
+                  .target { font-family: "Source Code Pro", monospace; background: #eaeaea; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.85rem; }
+                  .back { font-size: 0.9rem; }
+                  @media (prefers-color-scheme: dark) {
+                      body { background: #1a1a1a; color: #e6e6e6; }
+                      h1 { color: #b3dcb2; border-bottom-color: #3a3a3a; }
+                      a { color: #b3dcb2; }
+                      .target { background: #2e2e2e; }
+                  }
+              </style>
+          </head>
+          <body>
+              <p class="back"><a href="../">&larr; back to index</a></p>
+              <h1>Host crates</h1>
+              <p>Target: <span class="target">x86_64-unknown-linux-gnu</span></p>
+              <ul>
+                  <li><a href="atecc608b/index.html">atecc608b</a> : no_std driver for the ATECC608B</li>
+                  <li><a href="hsm_crypto_service/index.html">hsm_crypto_service</a> : business logic (PIN, PUK, sign workflow)</li>
+                  <li><a href="hsm_usb_protocol/index.html">hsm_usb_protocol</a> : HID command and response encoding</li>
+                  <li><a href="hsm_firmware_logic/index.html">hsm_firmware_logic</a> : host-testable firmware logic (state machine, debouncer)</li>
+                  <li><a href="hsm_host/index.html">hsm_host</a> : CLI client over USB-HID</li>
+                  <li><a href="config_generator/index.html">config_generator</a> : ATECC608B configuration zone blob generator</li>
+              </ul>
+          </body>
+          </html>
+          EOF
+
+      - name: Generate firmware index page
+        run: |
+          cat > doc-build/firmware-index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <title>mini-hsm - firmware</title>
+              <style>
+                  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #2b2b2b; line-height: 1.6; }
+                  h1 { color: #3d6b3c; border-bottom: 1px solid #ddd; padding-bottom: 0.4rem; }
+                  ul { padding-left: 1.2rem; }
+                  li { margin: 0.3rem 0; }
+                  a { color: #3d6b3c; text-decoration: none; }
+                  a:hover { text-decoration: underline; }
+                  .target { font-family: "Source Code Pro", monospace; background: #eaeaea; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.85rem; }
+                  .back { font-size: 0.9rem; }
+                  @media (prefers-color-scheme: dark) {
+                      body { background: #1a1a1a; color: #e6e6e6; }
+                      h1 { color: #b3dcb2; border-bottom-color: #3a3a3a; }
+                      a { color: #b3dcb2; }
+                      .target { background: #2e2e2e; }
+                  }
+              </style>
+          </head>
+          <body>
+              <p class="back"><a href="../">&larr; back to index</a></p>
+              <h1>Firmware</h1>
+              <p>Target: <span class="target">thumbv6m-none-eabi</span></p>
+              <p>The RP2040 binary. Cross-compiled because it depends on embassy-rp and cortex-m.</p>
+              <ul>
+                  <li><a href="hsm_firmware/index.html">hsm_firmware</a> : main binary, tasks, RP2040 HAL implementation</li>
+              </ul>
+          </body>
+          </html>
+          EOF
+
+      - name: Assemble documentation site
+        run: |
+          mkdir -p site/host site/firmware
+          cp -r target/doc-host/doc/. site/host/
+          cp -r target/doc-firmware/thumbv6m-none-eabi/doc/. site/firmware/
+          cp doc-extras/index.html site/index.html
+          cp doc-build/host-index.html site/host/index.html
+          cp doc-build/firmware-index.html site/firmware/index.html
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

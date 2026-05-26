@@ -22,7 +22,7 @@
 //!
 //! In this project's provisioning flow:
 //!
-//! 1. The host calls [`crate::command::nonce::AteccChannel::nonce_random`] to
+//! 1. The host calls [`crate::AteccChannel::nonce_random`] to
 //!    establish a shared `TempKey` value between host and chip.
 //! 2. The host calls [`AteccChannel::gendig`] with the I/O Protection Key slot
 //!    (slot 8). The chip computes

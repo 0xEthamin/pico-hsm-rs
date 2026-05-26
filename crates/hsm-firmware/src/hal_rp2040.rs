@@ -40,7 +40,7 @@
 //! intermittent `0x04` HAL errors on subsequent reads. The CryptoAuthLib
 //! method keeps the I2C controller in continuous control of the line
 //! and matches the reference implementation byte-for-byte. Restoring the
-//! bus to 400 kHz is automatic on the next [`Self::build_i2c`] call.
+//! bus to 400 kHz is automatic on the next [`Rp2040Hal::build_i2c`] call.
 //!
 //! The post-pulse wait (`tHTSU`, ~4.5 ms before the chip responds to
 //! I2C) is the **driver's** responsibility, not the HAL's:

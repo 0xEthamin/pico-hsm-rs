@@ -24,8 +24,8 @@
 //! The `CheckMac` verification on slot 5 / 6 mirrors what the chip itself
 //! computes. The byte layout below is taken **verbatim** from
 //! `CryptoAuthLib`'s `atcah_check_mac` (`lib/host/atca_host.c`), which is
-//! the authoritative reference, and validated against it by
-//! [`tests::checkmac_response_matches_cryptoauthlib_oracle`].
+//! the authoritative reference, and validated against it by 
+//! `checkmac_response_matches_cryptoauthlib_oracle_*` tests.
 //!
 //! ```text
 //! msg[0..32]   = slot_value         (32)

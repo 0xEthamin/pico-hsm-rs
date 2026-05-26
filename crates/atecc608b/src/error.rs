@@ -262,7 +262,7 @@ impl ChipError
     /// Return the raw status byte this variant came from.
     ///
     /// Inverse of [`Self::from_status_byte`]. For
-    /// [`ChipError::Unknown(byte)`] returns the preserved raw byte.
+    /// [`ChipError::Unknown`] returns the preserved raw byte.
     #[must_use]
     pub const fn as_status_byte(self) -> u8
     {

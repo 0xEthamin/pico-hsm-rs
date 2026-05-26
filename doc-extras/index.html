@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mini-hsm documentation</title>
+    <style>
+        :root
+        {
+            --bg: #f9f9f9;
+            --fg: #2b2b2b;
+            --fg-dim: #555;
+            --accent: #5b8c5a;
+            --accent-dark: #3d6b3c;
+            --card-bg: #ffffff;
+            --card-border: #e0e0e0;
+            --code-bg: #eaeaea;
+            --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+        }
+
+        @media (prefers-color-scheme: dark)
+        {
+            :root
+            {
+                --bg: #1a1a1a;
+                --fg: #e6e6e6;
+                --fg-dim: #999;
+                --accent: #8fc78e;
+                --accent-dark: #b3dcb2;
+                --card-bg: #242424;
+                --card-border: #3a3a3a;
+                --code-bg: #2e2e2e;
+                --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+            }
+        }
+
+        *
+        {
+            box-sizing: border-box;
+        }
+
+        body
+        {
+            font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.55;
+            margin: 0;
+            padding: 2rem 1rem;
+        }
+
+        main
+        {
+            max-width: 880px;
+            margin: 0 auto;
+        }
+
+        header
+        {
+            border-bottom: 1px solid var(--card-border);
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        h1
+        {
+            margin: 0 0 0.4rem 0;
+            font-size: 2.2rem;
+            font-weight: 600;
+            color: var(--accent-dark);
+        }
+
+        header p
+        {
+            margin: 0;
+            color: var(--fg-dim);
+            font-size: 1.05rem;
+        }
+
+        h2
+        {
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        a
+        {
+            color: var(--accent-dark);
+            text-decoration: none;
+        }
+
+        a:hover
+        {
+            text-decoration: underline;
+        }
+
+        .tree-grid
+        {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+            margin: 1rem 0;
+        }
+
+        @media (max-width: 640px)
+        {
+            .tree-grid
+            {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .tree-card
+        {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 6px;
+            padding: 1.25rem 1.4rem;
+            box-shadow: var(--shadow);
+            transition: border-color 0.15s ease, transform 0.15s ease;
+        }
+
+        .tree-card:hover
+        {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .tree-card h3
+        {
+            margin: 0 0 0.4rem 0;
+            font-size: 1.15rem;
+            font-weight: 600;
+        }
+
+        .tree-card h3 a
+        {
+            color: var(--accent-dark);
+        }
+
+        .tree-card .target
+        {
+            display: inline-block;
+            background: var(--code-bg);
+            font-family: "Source Code Pro", "SF Mono", Menlo, Consolas, monospace;
+            font-size: 0.78rem;
+            padding: 0.15rem 0.45rem;
+            border-radius: 3px;
+            margin-bottom: 0.6rem;
+            color: var(--fg-dim);
+        }
+
+        .tree-card p
+        {
+            margin: 0.3rem 0;
+            font-size: 0.93rem;
+            color: var(--fg-dim);
+        }
+
+        .tree-card ul
+        {
+            margin: 0.4rem 0 0 0;
+            padding-left: 1.2rem;
+            font-size: 0.9rem;
+        }
+
+        .tree-card ul li
+        {
+            margin: 0.15rem 0;
+        }
+
+        .tree-card ul li a
+        {
+            color: var(--fg);
+        }
+
+        .tree-card ul li a:hover
+        {
+            color: var(--accent-dark);
+        }
+
+        code
+        {
+            background: var(--code-bg);
+            font-family: "Source Code Pro", "SF Mono", Menlo, Consolas, monospace;
+            font-size: 0.88em;
+            padding: 0.1rem 0.35rem;
+            border-radius: 3px;
+        }
+
+        .note
+        {
+            background: var(--card-bg);
+            border-left: 3px solid var(--accent);
+            padding: 0.8rem 1rem;
+            margin: 1rem 0;
+            font-size: 0.92rem;
+            color: var(--fg-dim);
+            border-radius: 0 4px 4px 0;
+        }
+
+        footer
+        {
+            margin-top: 3rem;
+            padding-top: 1.25rem;
+            border-top: 1px solid var(--card-border);
+            font-size: 0.85rem;
+            color: var(--fg-dim);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <h1>mini-hsm</h1>
+        <p>Open-source USB-HID hardware security module on RP2040 + ATECC608B.</p>
+    </header>
+
+    <p>
+        This site is the generated <strong>rustdoc</strong> for the
+        mini-hsm workspace, including private items so that internal
+        helpers and pub(crate) APIs are visible. Third-party
+        dependencies are not included; refer to
+        <a href="https://docs.rs">docs.rs</a> for those.
+    </p>
+
+    <p>
+        The workspace compiles to two distinct targets, so the
+        documentation is split into two trees.
+    </p>
+
+    <h2>Documentation trees</h2>
+
+    <div class="tree-grid">
+        <div class="tree-card">
+            <h3><a href="host/">Host crates</a></h3>
+            <div class="target">x86_64-unknown-linux-gnu</div>
+            <p>Everything that runs on a developer's machine and on the firmware-shared no_std crates.</p>
+            <ul>
+                <li><a href="host/atecc608b/index.html">atecc608b</a> : no_std driver</li>
+                <li><a href="host/hsm_crypto_service/index.html">hsm_crypto_service</a> : business logic</li>
+                <li><a href="host/hsm_usb_protocol/index.html">hsm_usb_protocol</a> : HID wire format</li>
+                <li><a href="host/hsm_firmware_logic/index.html">hsm_firmware_logic</a> : host-testable firmware parts</li>
+                <li><a href="host/hsm_host/index.html">hsm_host</a> : CLI client</li>
+                <li><a href="host/config_generator/index.html">config_generator</a> : ATECC config blob builder</li>
+            </ul>
+        </div>
+
+        <div class="tree-card">
+            <h3><a href="firmware/">Firmware</a></h3>
+            <div class="target">thumbv6m-none-eabi</div>
+            <p>The RP2040 binary. Cross-compiled because it depends on embassy-rp and cortex-m.</p>
+            <ul>
+                <li><a href="firmware/hsm_firmware/index.html">hsm_firmware</a> : main binary, tasks, HAL impl</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="note">
+        Items annotated <code>pub(crate)</code> or kept module-private
+        are visible here because the doc was built with
+        <code>--document-private-items</code>. Anything not marked
+        <code>pub</code> is internal and may change without notice.
+    </div>
+
+    <h2>Project links</h2>
+    <ul>
+        <li><a href="https://github.com/0xEthamin/mini-hsm">Source repository on GitHub</a></li>
+        <li><a href="https://github.com/0xEthamin/mini-hsm/tree/main/docs">Design documents</a> (architecture, bring-up procedure, USB-HID protocol, ATECC config zone layout, CheckMac validation)</li>
+        <li><a href="https://github.com/0xEthamin/mini-hsm/blob/main/README.md">README</a></li>
+    </ul>
+
+    <footer>
+        Generated by rustdoc. Licensed under
+        <a href="https://github.com/0xEthamin/mini-hsm/blob/main/LICENSE">GPL-3.0-or-later</a>.
+    </footer>
+</main>
+</body>
+</html>

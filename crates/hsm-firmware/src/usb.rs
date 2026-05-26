@@ -18,8 +18,8 @@
 //! Initialises an embassy-usb device that exposes one vendor-defined HID
 //! interface, per the project's USB protocol (see crate `hsm-usb-protocol`).
 //!
-//! The two endpoints are split into a [`HidReader`] (host -> token) and a
-//! [`HidWriter`] (token -> host). They are owned by separate async tasks
+//! The two endpoints are split into a [`embassy_usb::class::hid::HidReader`] (host -> token) and a
+//! [`embassy_usb::class::hid::HidWriter`] (token -> host). They are owned by separate async tasks
 //! in [`crate::tasks`] so reads and writes proceed independently.
 //!
 //! # Lifetime model

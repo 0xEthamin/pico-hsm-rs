@@ -24,6 +24,7 @@
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
 #![warn(clippy::pedantic)]
+#![allow(rustdoc::private_intra_doc_links)]
 
 pub(crate) mod encrypted_write;
 pub mod error;

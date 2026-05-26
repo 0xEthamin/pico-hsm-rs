@@ -21,7 +21,7 @@
 //!
 //! **This command is intentionally NOT used for the user identity key.**
 //! User identity keys (slots 0..=4 in this project) are generated on-chip
-//! via [`crate::command::genkey::AteccChannel::genkey_create`] so that the private
+//! via [`crate::AteccChannel::genkey_create`] so that the private
 //! material never traverses the host or the USB bus. `PrivWrite` exists
 //! here for bring-up and for the V3 attestation slot (slot 7) only, both
 //! controlled by a privileged path in `tools/hsm-host`.
@@ -36,8 +36,8 @@
 //!   data field carries ciphertext plus a 32-byte MAC. The driver does not
 //!   currently expose the encrypted path: the orchestration is
 //!   service-layer work that depends on
-//!   [`crate::command::nonce::AteccChannel::nonce_random`] +
-//!   [`crate::command::gendig::AteccChannel::gendig`] and the matching host-side
+//!   [`crate::AteccChannel::nonce_random`] +
+//!   [`crate::AteccChannel::gendig`] and the matching host-side
 //!   key derivation. It will be added when that orchestration lands.
 //!
 //! Reference: `CryptoAuthLib` `lib/calib/calib_priv_write.c`, constants
