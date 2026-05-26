@@ -104,7 +104,7 @@ async fn main(spawner: Spawner)
     // GP17 : yellow touch-awaiting LED, active-high.
     let led_yellow = hal_rp2040::Rp2040Led::new(Output::new(peripherals.PIN_17, Level::Low));
 
-    info!("mini-hsm firmware booted");
+    info!("pico-hsm-rs firmware booted");
 
     // Initialise the static storage exactly once. `init` returns a
     // `&'static mut T` borrowed from the cell.

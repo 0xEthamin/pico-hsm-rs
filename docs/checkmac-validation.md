@@ -92,7 +92,7 @@ specified against.
 4. Compare the printed digest against the Rust function:
 
    ```sh
-   cd mini-hsm
+   cd pico-hsm-rs
    cat > /tmp/oracle_compare.rs << 'EOF'
    use hsm_crypto_service::pin::checkmac_response;
    fn main() {

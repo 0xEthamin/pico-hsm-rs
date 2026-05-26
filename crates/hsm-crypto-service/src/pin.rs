@@ -61,10 +61,10 @@ pub(crate) const PIN_LEN: usize = 4;
 pub(crate) const PUK_LEN: usize = 8;
 
 /// Domain separation tag for the PIN salt.
-const PIN_SALT_DOMAIN: &[u8] = b"mini-hsm-pin-salt-v1";
+const PIN_SALT_DOMAIN: &[u8] = b"pico-hsm-rs-pin-salt-v1";
 
 /// Domain separation tag for the PUK salt.
-const PUK_SALT_DOMAIN: &[u8] = b"mini-hsm-puk-salt-v1";
+const PUK_SALT_DOMAIN: &[u8] = b"pico-hsm-rs-puk-salt-v1";
 
 /// Errors returned when a PIN or PUK does not match the expected format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
